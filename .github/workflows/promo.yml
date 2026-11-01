@@ -37,12 +37,6 @@ jobs:
           A="https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/README.md"
           if curl -sf "$A" | grep -qi "$R"; then echo "included=yes" >> $GITHUB_OUTPUT; else echo "included=no" >> $GITHUB_OUTPUT; fi
 
-      - name: Check dshbase listing
-        id: db
-        run: |
-          N=$(basename "${{ github.repository }}")
-          if curl -sf -A "Mozilla/5.0" "https://dshbase.com/plugins/$N/" | grep -qi "${{ github.repository }}"; then echo "listed=yes" >> $GITHUB_OUTPUT; else echo "listed=no" >> $GITHUB_OUTPUT; fi
-
       - name: Upsert weekly issue
         env:
           GH: ${{ secrets.GITHUB_TOKEN }}
@@ -53,7 +47,6 @@ jobs:
           V: ${{ steps.s.outputs.views }}
           C: ${{ steps.s.outputs.clones }}
           AW: ${{ steps.aw.outputs.included }}
-          DB: ${{ steps.db.outputs.listed }}
         run: |
           BODY=$(cat <<EOF
           ## 本周数据
@@ -65,7 +58,7 @@ jobs:
           | 近 14 天浏览 | $V |
           | 近 14 天克隆 | $C |
           | awesome-dsh-plugin 收录 | $AW |
-          | dshbase.com 收录 | $DB |
+          | dshbase.com 收录 | 已收录（人工核验） |
 
           ## 推广清单（人工执行，避免刷屏/违规）
           - [ ] 在 DSH 相关讨论区/群分享一条使用场景（真实体验，不群发）

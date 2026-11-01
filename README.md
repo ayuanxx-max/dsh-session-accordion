@@ -1,6 +1,7 @@
 # DSH 会话交互折叠功能 · DSH Session Turn Accordion
 
 [![awesome-dsh-plugin](https://img.shields.io/badge/awesome--dsh--plugin-已收录-brightgreen)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![dshbase](https://img.shields.io/badge/dshbase-已收录-blue)](https://dshbase.com/zh/plugins/dsh-session-accordion/)
 [![license](https://img.shields.io/github/license/ayuanxx-max/dsh-session-accordion)](LICENSE)
 [![release](https://img.shields.io/github/v/release/ayuanxx-max/dsh-session-accordion)](https://github.com/ayuanxx-max/dsh-session-accordion/releases)
 [![stars](https://img.shields.io/github/stars/ayuanxx-max/dsh-session-accordion)](https://github.com/ayuanxx-max/dsh-session-accordion/stargazers)

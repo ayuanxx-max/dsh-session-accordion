@@ -41,7 +41,7 @@ jobs:
         id: db
         run: |
           N=$(basename "${{ github.repository }}")
-          if curl -sf "https://dshbase.com/zh/plugins/$N/" | grep -qE "已收录|已验证"; then echo "listed=yes" >> $GITHUB_OUTPUT; else echo "listed=no" >> $GITHUB_OUTPUT; fi
+          if curl -sf -A "Mozilla/5.0" "https://dshbase.com/zh/plugins/$N/" | grep -qi "${{ github.repository }}"; then echo "listed=yes" >> $GITHUB_OUTPUT; else echo "listed=no" >> $GITHUB_OUTPUT; fi
 
       - name: Upsert weekly issue
         env:

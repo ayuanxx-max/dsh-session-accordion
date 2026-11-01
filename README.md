@@ -1,5 +1,20 @@
 # DSH 会话交互折叠功能 · DSH Session Turn Accordion
 
+[![awesome-dsh-plugin](https://img.shields.io/badge/awesome--dsh--plugin-已收录-brightgreen)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
+[![license](https://img.shields.io/github/license/ayuanxx-max/dsh-session-accordion)](LICENSE)
+[![release](https://img.shields.io/github/v/release/ayuanxx-max/dsh-session-accordion)](https://github.com/ayuanxx-max/dsh-session-accordion/releases)
+[![stars](https://img.shields.io/github/stars/ayuanxx-max/dsh-session-accordion)](https://github.com/ayuanxx-max/dsh-session-accordion/stargazers)
+
+> **30 秒理解**：把 DSH 会话里每一轮对话折叠成一行（时间胶囊 + 问题摘要），只保留最新一条展开。纯客户端插件，不改核心。
+>
+> 兼容 DSH Desktop / Web；安装见下方「安装」，卸载见「卸载」。
+
+### 相关插件
+
+- [dsh-session-fork-tree](https://github.com/ayuanxx-max/dsh-session-fork-tree) —— 分叉会话以树状排列在侧边栏
+- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) —— DSH 插件精选列表
+
+
 把 DSH Web 会话里的每一次交互压成一行，只保留最近一次展开；点提问行展开，执行过程另行单独点开。
 
 Fold every interaction in a DSH Web chat into a single line and keep only the latest one open. Click a question row to expand it; the execution process opens only when you click its own header.

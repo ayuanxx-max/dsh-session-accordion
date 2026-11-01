@@ -1,0 +1,80 @@
+name: weekly-promo
+
+on:
+  schedule:
+    - cron: "0 1 * * 1"   # 每周一 01:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect stats
+        id: s
+        env:
+          GH: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          R="${{ github.repository }}"
+          J=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R")
+          echo "stars=$(echo "$J" | jq -r .stargazers_count)" >> $GITHUB_OUTPUT
+          echo "forks=$(echo "$J" | jq -r .forks_count)" >> $GITHUB_OUTPUT
+          echo "issues=$(echo "$J" | jq -r .open_issues_count)" >> $GITHUB_OUTPUT
+          V=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R/traffic/views")
+          echo "views=$(echo "$V" | jq -r '.count // 0')" >> $GITHUB_OUTPUT
+          C=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R/traffic/clones")
+          echo "clones=$(echo "$C" | jq -r '.count // 0')" >> $GITHUB_OUTPUT
+
+      - name: Check awesome-list inclusion
+        id: aw
+        env:
+          GH: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          R="${{ github.repository }}"
+          A="https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/README.md"
+          if curl -sf "$A" | grep -qi "$R"; then echo "included=yes" >> $GITHUB_OUTPUT; else echo "included=no" >> $GITHUB_OUTPUT; fi
+
+      - name: Upsert weekly issue
+        env:
+          GH: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          S: ${{ steps.s.outputs.stars }}
+          F: ${{ steps.s.outputs.forks }}
+          I: ${{ steps.s.outputs.issues }}
+          V: ${{ steps.s.outputs.views }}
+          C: ${{ steps.s.outputs.clones }}
+          AW: ${{ steps.aw.outputs.included }}
+        run: |
+          BODY=$(cat <<EOF
+          ## 本周数据
+          | 指标 | 值 |
+          | --- | --- |
+          | ★ Stars | $S |
+          | Forks | $F |
+          | Open issues | $I |
+          | 近 14 天浏览 | $V |
+          | 近 14 天克隆 | $C |
+          | awesome-dsh-plugin 收录 | $AW |
+
+          ## 推广清单（人工执行，避免刷屏/违规）
+          - [ ] 在 DSH 相关讨论区/群分享一条使用场景（真实体验，不群发）
+          - [ ] 检查 README 安装步骤在新版本 DSH 上是否仍可用
+          - [ ] 有 issue 时 48 小时内回复
+          - [ ] 有 release 时更新 changelog 与示例
+          - [ ] 收录异常（included=no）→ 重新提交 awesome 列表 PR
+
+          > 自动生成：\`.github/workflows/promo.yml\`；只统计与提醒，不自动发帖、不自动 star。
+          EOF
+          )
+          TITLE="Weekly promo checklist (auto)"
+          ID=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/search/issues?q=repo:$REPO+is:issue+is:open+in:title+%22Weekly+promo+checklist%22" | jq -r '.items[0].number // empty')
+          if [ -n "$ID" ]; then
+            curl -s -X PATCH -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg b "$BODY" '{body:$b}')" "https://api.github.com/repos/$REPO/issues/$ID" > /dev/null
+            echo "updated #$ID"
+          else
+            curl -s -X POST -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg t "$TITLE" --arg b "$BODY" '{title:$t, body:$b, labels:["promo"]}')"               "https://api.github.com/repos/$REPO/issues" > /dev/null
+            echo "created issue"
+          fi

@@ -1,51 +1,58 @@
-name: weekly-promo
+name: promo
 
 on:
   schedule:
-    - cron: "0 1 * * 1"   # 每周一 01:00 UTC
+    - cron: "0 1 * * 1"    # 每周一
+    - cron: "0 1 1 * *"    # 每月 1 日
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "weekly | monthly"
+        required: false
+        default: "weekly"
 
 permissions:
   contents: read
   issues: write
 
 jobs:
-  checklist:
+  run:
     runs-on: ubuntu-latest
+    env:
+      GH: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      MODE: ${{ inputs.mode || (github.event.schedule == '0 1 1 * *' && 'monthly' || 'weekly') }}
     steps:
       - name: Collect stats
         id: s
-        env:
-          GH: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          R="${{ github.repository }}"
-          J=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R")
+          J=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$REPO")
           echo "stars=$(echo "$J" | jq -r .stargazers_count)" >> $GITHUB_OUTPUT
           echo "forks=$(echo "$J" | jq -r .forks_count)" >> $GITHUB_OUTPUT
-          echo "issues=$(echo "$J" | jq -r .open_issues_count)" >> $GITHUB_OUTPUT
-          V=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R/traffic/views")
+          echo "open_issues=$(echo "$J" | jq -r .open_issues_count)" >> $GITHUB_OUTPUT
+          V=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$REPO/traffic/views")
           echo "views=$(echo "$V" | jq -r '.count // 0')" >> $GITHUB_OUTPUT
-          C=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$R/traffic/clones")
+          C=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/repos/$REPO/traffic/clones")
           echo "clones=$(echo "$C" | jq -r '.count // 0')" >> $GITHUB_OUTPUT
+          OLD=$(date -u -d '2 days ago' +%Y-%m-%d)
+          STALE=$(curl -s -H "Authorization: Bearer $GH"             "https://api.github.com/search/issues?q=repo:$REPO+is:issue+is:open+created:%3C$OLD" | jq -r .total_count)
+          echo "stale=$STALE" >> $GITHUB_OUTPUT
 
-      - name: Check awesome-list inclusion
+      - name: Check awesome inclusion
         id: aw
-        env:
-          GH: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          R="${{ github.repository }}"
           A="https://raw.githubusercontent.com/awesome-dsh-plugin/awesome-dsh-plugin/main/README.md"
-          if curl -sf "$A" | grep -qi "$R"; then echo "included=yes" >> $GITHUB_OUTPUT; else echo "included=no" >> $GITHUB_OUTPUT; fi
+          if curl -sf "$A" | grep -qi "$REPO"; then echo "included=yes" >> $GITHUB_OUTPUT; else echo "included=no" >> $GITHUB_OUTPUT; fi
 
       - name: Upsert weekly issue
+        if: env.MODE == 'weekly'
         env:
-          GH: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
           S: ${{ steps.s.outputs.stars }}
           F: ${{ steps.s.outputs.forks }}
-          I: ${{ steps.s.outputs.issues }}
+          I: ${{ steps.s.outputs.open_issues }}
           V: ${{ steps.s.outputs.views }}
           C: ${{ steps.s.outputs.clones }}
+          ST: ${{ steps.s.outputs.stale }}
           AW: ${{ steps.aw.outputs.included }}
         run: |
           BODY=$(cat <<EOF
@@ -55,27 +62,80 @@ jobs:
           | ★ Stars | $S |
           | Forks | $F |
           | Open issues | $I |
+          | 超 48h 未处理 issue | $ST |
           | 近 14 天浏览 | $V |
           | 近 14 天克隆 | $C |
           | awesome-dsh-plugin 收录 | $AW |
           | dshbase.com 收录 | 已收录（人工核验） |
 
-          ## 推广清单（人工执行，避免刷屏/违规）
-          - [ ] 在 DSH 相关讨论区/群分享一条使用场景（真实体验，不群发）
-          - [ ] 检查 README 安装步骤在新版本 DSH 上是否仍可用
-          - [ ] 有 issue 时 48 小时内回复
-          - [ ] 有 release 时更新 changelog 与示例
-          - [ ] 收录异常（included=no）→ 重新提交 awesome 列表 PR
+          ## 本周推送清单
+          - [ ] 若「超 48h 未处理 issue」> 0 → 优先回复
+          - [ ] 若 awesome 收录 = no → 重提 PR
+          - [ ] 有 release → 检查 changelog 与示例是否同步
+          - [ ] 在 DSH 社区分享一次真实使用场景（不群发、不刷屏）
 
-          > 自动生成：\`.github/workflows/promo.yml\`；只统计与提醒，不自动发帖、不自动 star。
+          > 自动生成：`.github/workflows/promo.yml`（只统计与提醒，不自动发帖/star/评论他人）
           EOF
           )
-          TITLE="Weekly promo checklist (auto)"
-          ID=$(curl -s -H "Authorization: Bearer $GH" "https://api.github.com/search/issues?q=repo:$REPO+is:issue+is:open+in:title+%22Weekly+promo+checklist%22" | jq -r '.items[0].number // empty')
+          upsert_issue() {
+            local title="$1" body="$2" label="$3"
+            local id=$(curl -s -H "Authorization: Bearer $GH"               "https://api.github.com/search/issues?q=repo:$REPO+is:issue+is:open+in:title+%22$(echo $title | sed 's/ /+/g')%22" | jq -r '.items[0].number // empty')
+            if [ -n "$id" ]; then
+              curl -s -X PATCH -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"                 -d "$(jq -n --arg b "$body" '{body:$b}')" "https://api.github.com/repos/$REPO/issues/$id" >/dev/null
+            else
+              curl -s -X POST -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"                 -d "$(jq -n --arg t "$title" --arg b "$body" --arg l "$label" '{title:$t, body:$b, labels:[$l]}')"                 "https://api.github.com/repos/$REPO/issues" >/dev/null
+            fi
+          }
+          upsert_issue "Weekly promo checklist (auto)" "$BODY" "promo"
+
+      - name: Upsert monthly pack
+        if: env.MODE == 'monthly'
+        env:
+          S: ${{ steps.s.outputs.stars }}
+          F: ${{ steps.s.outputs.forks }}
+          ST: ${{ steps.s.outputs.stale }}
+          AW: ${{ steps.aw.outputs.included }}
+        run: |
+          NAME=$(basename "$REPO")
+          BODY=$(cat <<EOF
+          ## 月度推广包（自动生成，直接照做）
+
+          ### 1. 数据
+          | 指标 | 值 |
+          | --- | --- |
+          | ★ Stars | $S |
+          | Forks | $F |
+          | 超 48h 未处理 issue | $ST |
+          | awesome 收录 | $AW |
+
+          ### 2. 本月 4 个动作（预计 30 分钟）
+          - [ ] **发一条真实案例**（复制下面草稿，配一张截图）
+          - [ ] 检查安装步骤在新版 DSH 是否仍可用
+          - [ ] 更新 release notes / README 示例
+          - [ ] 回复所有 issue（48h 内）
+
+          ### 3. 可直接发布的短文案（中文）
+
+          > 最近给 DSH 写了两个小插件，解决会话太多时的两个具体痛点：
+          > ① **会话折叠**：每轮对话压成一行，只保留最新展开（时间胶囊 + 问题摘要）；
+          > ② **分叉树**：fork 出来的会话挂在父会话下面，圆角导轨 + 绿色展开器。
+          > 都是纯客户端插件，不改核心，装上就能用。
+          > 仓库：https://github.com/$(echo $REPO)
+          > 已收录 awesome-dsh-plugin 与 dshbase。
+
+          ### 4. 英文文案（可选）
+
+          > Two small DSH client plugins for session management:
+          > - turn accordion: fold each chat turn into one row
+          > - fork tree: forked sessions nested under their parent in the sidebar
+          > No core patches.
+
+          > 自动生成：`.github/workflows/promo.yml`
+          EOF
+          )
+          ID=$(curl -s -H "Authorization: Bearer $GH"             "https://api.github.com/search/issues?q=repo:$REPO+is:issue+is:open+in:title+%22Monthly+promo+pack%22" | jq -r '.items[0].number // empty')
           if [ -n "$ID" ]; then
-            curl -s -X PATCH -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg b "$BODY" '{body:$b}')" "https://api.github.com/repos/$REPO/issues/$ID" > /dev/null
-            echo "updated #$ID"
+            curl -s -X PATCH -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg b "$BODY" '{body:$b}')" "https://api.github.com/repos/$REPO/issues/$ID" >/dev/null
           else
-            curl -s -X POST -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg t "$TITLE" --arg b "$BODY" '{title:$t, body:$b, labels:["promo"]}')"               "https://api.github.com/repos/$REPO/issues" > /dev/null
-            echo "created issue"
+            curl -s -X POST -H "Authorization: Bearer $GH" -H "Accept: application/vnd.github+json"               -d "$(jq -n --arg t "Monthly promo pack (auto)" --arg b "$BODY" '{title:$t, body:$b, labels:["promo"]}')"               "https://api.github.com/repos/$REPO/issues" >/dev/null
           fi

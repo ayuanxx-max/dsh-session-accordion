@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="380" viewBox="0 0 860 380" font-family="Segoe UI, PingFang SC, sans-serif">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#141821"/><stop offset="1" stop-color="#0d1017"/>
+  </linearGradient>
+  <style>
+    .card{fill:#1a1f2b;stroke:#2b3345;stroke-width:1;rx:12}
+    .title{fill:#e8ecf5;font-size:15px;font-weight:600}
+    .sub{fill:#8b96ab;font-size:11px}
+    .pill{fill:#232a38;stroke:#39445c;rx:8}
+    .pilltxt{fill:#c9d3e6;font-size:12px}
+    .accent{fill:#4ade80}
+    .rail{fill:none;stroke:#3a4560;stroke-width:2}
+  </style>
+</defs>
+<rect width="860" height="380" fill="url(#bg)"/>
+<text x="24" y="34" class="title">DSH 会话管理：两个纯客户端插件（示意图）</text>
+<text x="24" y="54" class="sub">左：每轮对话折叠成一行  ·  右：fork 出的会话挂在父会话下</text>
+<rect class="card" x="24" y="72" width="392" height="284" rx="12"/>
+<text x="44" y="100" class="title">session-accordion</text>
+<rect class="pill" x="44" y="116" width="352" height="34" rx="8"/>
+<text x="58" y="138" class="pilltxt">12:04  ·  如何把 DSH 启动优化到 2.6s？</text>
+<rect class="pill" x="44" y="158" width="352" height="34" rx="8"/>
+<text x="58" y="180" class="pilltxt">12:31  ·  插件冲突怎么排查？</text>
+<rect x="44" y="200" width="352" height="120" rx="8" fill="#1f2634" stroke="#4ade80"/>
+<text x="58" y="222" class="pilltxt" fill="#e8ecf5">13:07  ·  双系统会话怎么同步？（展开中）</text>
+<text x="58" y="244" class="sub">A：中立格式 + 路径映射 + 多帧 zstd</text>
+<text x="58" y="264" class="sub">B：只同步 sessions 与 workspace.json</text>
+<text x="58" y="284" class="sub">C：导入前必须完全退出 DSH</text>
+<text x="58" y="306" class="sub">只保留最新一条展开，其余压成时间胶囊</text>
+
+<rect class="card" x="444" y="72" width="392" height="284" rx="12"/>
+<text x="464" y="100" class="title">session-fork-tree</text>
+<path d="M486 130 q0 22 22 22 h20 q22 0 22 22" fill="none" stroke="#4ade80" stroke-width="2"/>
+<rect x="464" y="116" width="220" height="28" rx="6" fill="#232a38" stroke="#4ade80"/>
+<text x="478" y="135" class="pilltxt">父会话：插件开发</text>
+<rect x="552" y="174" width="220" height="26" rx="6" fill="#232a38" stroke="#39445c"/>
+<text x="566" y="192" class="pilltxt">├ 分支 A：accordion 折叠</text>
+<rect x="552" y="208" width="220" height="26" rx="6" fill="#232a38" stroke="#39445c"/>
+<text x="566" y="226" class="pilltxt">├ 分支 B：fork tree 排列</text>
+<rect x="552" y="242" width="220" height="26" rx="6" fill="#232a38" stroke="#39445c"/>
+<text x="566" y="260" class="pilltxt">└ 分支 C：双系统同步实验</text>
+<text x="464" y="300" class="sub">圆角导轨 + 绿色展开器 + 祖先链高亮</text>
+<text x="464" y="322" class="sub">纯客户端，不改核心，装上即用</text>
+</svg>

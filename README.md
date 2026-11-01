@@ -12,8 +12,21 @@
 
 ![会话管理示意](docs/images/session-management.svg)
 
+![折叠与分叉树演示](docs/images/demo.gif)
+
 📖 **[会话管理指南（折叠 + 分叉树组合用法）](docs/session-management-guide.md)**
 
+
+## 平台支持与路线图
+
+| 平台 | 状态 |
+| --- | --- |
+| **Windows 11（DSH Desktop）** | ✅ **稳定运行**（当前版本） |
+| Ubuntu | 🧪 **测试中**，尚未承诺稳定 |
+| macOS | 📋 **计划中** |
+
+> 修复与功能调整的**优先级按评论 / 留言的反馈量排序**——遇到问题请直接开 issue 或留言，
+> 同类反馈越多越先修。欢迎提交你所在平台的环境信息。
 
 ### 相关插件
 

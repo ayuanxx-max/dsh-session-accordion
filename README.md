@@ -12,7 +12,13 @@
 
 ![会话管理示意](docs/images/session-management.svg)
 
-![折叠与分叉树演示](docs/images/demo.gif)
+**会话折叠**
+
+![会话折叠演示](docs/images/demo-accordion.gif)
+
+**分叉树排列**
+
+![分叉树演示](docs/images/demo-forktree.gif)
 
 📖 **[会话管理指南（折叠 + 分叉树组合用法）](docs/session-management-guide.md)**
 

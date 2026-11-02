@@ -76,6 +76,28 @@ Fold every interaction in a DSH Web chat into a single line and keep only the la
 
 ### 安装
 
+**npm（推荐）**
+
+```bash
+# 桌面版（profile=desktop）
+dsh plugin --profile desktop add dsh-session-accordion@2.5.5
+
+# 或免全局安装
+npx -y @deepseek-ai/dsh plugin --profile desktop add dsh-session-accordion@2.5.5
+
+# Web UI（profile=web）
+dsh plugin --profile web add dsh-session-accordion@2.5.5
+```
+
+安装后**完全退出 DSH 再启动**；卸载：
+
+```bash
+dsh plugin --profile desktop remove dsh-session-accordion
+```
+
+> 以下为源码方式（开发 / 离线环境）：
+
+
 前置：能跑 DSH Web UI 的宿主 —— Windows / macOS 桌面版，或 Linux 上的 `dsh web`。profile 名随宿主不同：桌面版默认 `desktop`，`dsh web` 默认 `web`，自定义 profile 用你自己的名字。
 
 #### Windows（PowerShell）

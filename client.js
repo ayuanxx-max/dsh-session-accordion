@@ -278,50 +278,59 @@ window.__ModuleLoader__.load({
       }, 200);
     }
 
+    let hiddenSince = 0;
+
     function resetState() {
       expandedId = null;
       seenIds = [];
       flowRef = null;
     }
 
+    /** 任意一行有盒子就算视图可见：只看第一行会被我们自己折叠掉的节点误判。 */
+    function hasVisibleRow(flow) {
+      const rows = flow.querySelectorAll(ITEM_SEL);
+      const limit = Math.min(rows.length, 40);
+      for (let i = 0; i < limit; i++) {
+        if (rows[i].getClientRects().length > 0) return true;
+      }
+      return false;
+    }
+
+    function isAppend(prev, ids) {
+      if (prev.length === 0 || ids.length <= prev.length) return false;
+      for (let i = 0; i < prev.length; i++) {
+        if (ids[i] !== prev[i]) return false;
+      }
+      return true;
+    }
+
     /**
-     * 依据「容器变化 / 历史消失 / 新轮追加」决定当前唯一展开的轮次。
-     * @returns 本轮 turnId 序列（供渲染使用）
+     * 决定当前唯一展开的轮次：
+     *   整批替换（无交集）= 换会话 → 最新；新轮追加 → 最新；
+     *   向上加载历史（交集仍在）= 保持；展开目标消失 → 最新。
      */
     function trackExpanded(flow, list) {
       const ids = list.map(function (group) {
         return group.id;
       });
-      if (flow === null || ids.length === 0) {
-        resetState();
-        return ids;
-      }
+      if (ids.length === 0) return ids;
       const last = ids[ids.length - 1];
-      if (flow !== flowRef) {
+      const prev = seenIds;
+      if (prev.length === 0) {
         expandedId = last;
       } else {
-        const prev = seenIds;
-        let missing = false;
-        for (let i = 0; i < prev.length; i++) {
-          if (ids.indexOf(prev[i]) === -1) {
-            missing = true;
+        let overlap = false;
+        for (let i = 0; i < ids.length; i++) {
+          if (prev.indexOf(ids[i]) !== -1) {
+            overlap = true;
             break;
           }
         }
-        let appended = prev.length > 0 && ids.length > prev.length;
-        if (appended) {
-          for (let i = 0; i < prev.length; i++) {
-            if (ids[i] !== prev[i]) {
-              appended = false;
-              break;
-            }
-          }
-        }
-        if (missing || appended) {
+        if (!overlap) {
+          expandedId = last;
+        } else if (isAppend(prev, ids)) {
           expandedId = last;
         } else if (expandedId !== null && ids.indexOf(expandedId) === -1) {
-          expandedId = last;
-        } else if (expandedId === null && prev.length === 0) {
           expandedId = last;
         }
       }
@@ -335,16 +344,23 @@ window.__ModuleLoader__.load({
       const flow = findFlow();
       if (flow === null) {
         resetState();
-        return 0;
-      }
-      // `conversation.chat.flow` 是 display:contents 锚点：它自己没有盒子，
-      // getClientRects() 恒为空，可见性只能靠行节点探测。
-      const probe = flow.querySelector(ITEM_SEL);
-      if (probe === null || probe.getClientRects().length === 0) {
-        resetState();
+        hiddenSince = 0;
         return 0;
       }
       const list = groups(flow);
+      if (list.length === 0) {
+        resetState();
+        hiddenSince = 0;
+        return 0;
+      }
+      // 视图被隐藏（切会话/切面板）：保留状态并跳过渲染；隐藏超过 1.5s 后
+      // 再次可见视为"重新打开会话"，回到只展开最新一条。
+      if (!hasVisibleRow(flow)) {
+        if (hiddenSince === 0) hiddenSince = Date.now();
+        return 0;
+      }
+      if (hiddenSince !== 0 && Date.now() - hiddenSince > 1500) resetState();
+      hiddenSince = 0;
       trackExpanded(flow, list);
       if (!logged && list.length > 0) {
         logged = true;

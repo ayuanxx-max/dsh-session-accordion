@@ -2,6 +2,11 @@
 
 All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
 
+## 2.5.8 — 2026-11-03
+
+- 2.5.7 在 npm 上被以"staged"（延迟 2FA 证明）形式占用，无法覆盖发布；改用 2.5.8 发布同一份代码。
+- 2.5.7 was occupied by an npm staged publish, so the same code ships as 2.5.8.
+
 ## 2.5.7 — 2026-11-03
 
 - 版本号跳过 2.5.6：npm 上的 `dsh-session-accordion@2.5.6` 发布于 2026-11-02，**不含本轮状态机修复**（`hasVisibleRow` / `hiddenSince` 均不存在），属同名不同物。2.5.7 起以仓库当前代码为准。

@@ -479,14 +479,122 @@ window.__ModuleLoader__.load({
       console.info('[auto-collapse] ready — window.__acReport() 查看结构诊断');
     }
 
+    /* 内核兜底（2026-11-04）：长 / 压缩会话点「加载更早」到第 3–4 页后，会话视图重建抛
+       `conversation Definition "system-message" withdrew materialized target "chat"`；
+       该异常被订阅通知层吞掉，快照不再发布 → 画面停在旧内容，按钮看起来失效。
+       修法：包住 system-message / request-prompt 的 buildViewNode——原实现返回 null 且该
+       context 已有 chat 节点时，返回同一 key 且 `visibility:"hidden"`（错误信息要求的写法，
+       也是核心 assistant-message Definition 同款）。未物化过的 context 仍返回 null。
+       结构认不出就不动作；异常只 warn；不改配置、不改会话文件、不碰 app.asar。 */
+    const GUARD_KINDS = ['system-message', 'request-prompt'];
+    const GUARD_MARK = '__acWithdrawGuard';
+    const guardSubscribed = new WeakSet();
+    const guardState = { installed: [], hits: 0, active: false };
+
+    function guardDefinition(kind, definition) {
+      if (definition === null || typeof definition !== 'object') return false;
+      if (typeof definition.buildViewNode !== 'function') return false;
+      if (definition[GUARD_MARK] === true) return true;
+      const original = definition.buildViewNode;
+      definition.buildViewNode = function buildViewNode(context) {
+        const node = original.call(this, context);
+        if (node !== null && node !== void 0) return node;
+        try {
+          const map = context === null || context === void 0 ? void 0 : context.current;
+          if (map === null || map === void 0 || typeof map.get !== 'function') return node;
+          const current = map.get('chat');
+          if (current === null || current === void 0 || typeof current !== 'object') return node;
+          if (current.visibility === 'hidden') return current;
+          guardState.hits += 1;
+          return Object.assign({}, current, { visibility: 'hidden' });
+        } catch (err) {
+          return node;
+        }
+      };
+      definition[GUARD_MARK] = true;
+      if (guardState.installed.indexOf(kind) < 0) guardState.installed.push(kind);
+      return true;
+    }
+
+    function guardRegistry(events) {
+      if (events === null || typeof events !== 'object') return false;
+      const definitions = events.definitions;
+      if (definitions === null || definitions === void 0 || typeof definitions.get !== 'function') return false;
+      let guarded = 0;
+      for (let i = 0; i < GUARD_KINDS.length; i += 1) {
+        try {
+          if (guardDefinition(GUARD_KINDS[i], definitions.get(GUARD_KINDS[i]))) guarded += 1;
+        } catch (err) {
+          /* 保持内核原行为 */
+        }
+      }
+      const complete = guarded === GUARD_KINDS.length;
+      if (complete && guardState.active === false) {
+        guardState.active = true;
+        console.info('[auto-collapse] withdraw guard active');
+      }
+      return complete;
+    }
+
+    function installWithdrawGuard(ctx) {
+      try {
+        let conversation = void 0;
+        try {
+          conversation = ctx === null || ctx === void 0 ? void 0 : ctx.uiConversation;
+        } catch (err) {
+          conversation = void 0;
+        }
+        if ((conversation === void 0 || conversation === null) && ctx !== null && ctx !== void 0 && typeof ctx.get === 'function') {
+          try {
+            conversation = ctx.get('uiConversation');
+          } catch (err) {
+            conversation = void 0;
+          }
+        }
+        if (conversation === void 0 || conversation === null) {
+          if (ctx !== null && ctx !== void 0 && typeof ctx.inject === 'function') {
+            try {
+              ctx.inject(['uiConversation'], function (child) {
+                installWithdrawGuard(child);
+              });
+            } catch (err) {
+              console.warn('[auto-collapse] withdraw guard inject failed', err);
+            }
+          }
+          return;
+        }
+        const events = conversation.events;
+        if (events === void 0 || events === null) return;
+        guardRegistry(events);
+        if (typeof events.subscribe === 'function' && !guardSubscribed.has(events)) {
+          guardSubscribed.add(events);
+          try {
+            events.subscribe(function () {
+              guardRegistry(events);
+            });
+          } catch (err) {
+            guardSubscribed.delete(events);
+          }
+        }
+        try {
+          window.__acWithdrawGuard = guardState;
+        } catch (err) {
+          /* 诊断用，失败无妨 */
+        }
+      } catch (err) {
+        console.warn('[auto-collapse] withdraw guard skipped', err);
+      }
+    }
+
     return {
       inject: [],
-      apply() {
+      apply(ctx) {
         try {
           start();
         } catch (err) {
           console.warn('[auto-collapse] start failed', err);
         }
+        installWithdrawGuard(ctx);
       },
     };
   },

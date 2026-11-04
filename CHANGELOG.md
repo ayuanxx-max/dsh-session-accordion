@@ -2,6 +2,13 @@
 
 All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
 
+## 2.5.9 — 2026-11-04
+
+- 修复「加载更早」失效：长 / 压缩会话点到第 3–4 页后，会话视图重建抛 `conversation Definition "system-message" withdrew materialized target "chat"`；该异常被订阅通知层吞掉，快照不再发布 → 画面停在旧内容，按钮看起来点不动。
+- 兜底方式：插件包住 `system-message` / `request-prompt` 两个 Definition 的 `buildViewNode`——原实现返回 null 且该 context 已有 `chat` 节点时，返回同一 key 并标 `visibility:"hidden"`（正是内核错误信息要求的写法，也是核心 assistant-message Definition 的同款处理）；从未物化过节点的 context 仍返回 null，内核恢复返回真节点时立即恢复可见。
+- `apply(ctx)` 现在接收 ctx；自检入口 `window.__acWithdrawGuard` → `{ installed, hits, active }`。结构认不出就完全不动作，异常只 warn。
+- Fix "Load earlier" going dead after three or four pages on long compacted sessions: guard the conversation rebuild against a Definition withdrawing an already materialized Chat node (hidden instead of null). Diagnostics: `window.__acWithdrawGuard`.
+
 ## 2.5.8 — 2026-11-03
 
 - 2.5.7 在 npm 上被以"staged"（延迟 2FA 证明）形式占用，无法覆盖发布；改用 2.5.8 发布同一份代码。

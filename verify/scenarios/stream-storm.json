@@ -1,0 +1,35 @@
+{
+  "name": "stream-storm",
+  "metrics": {
+    "maxWorstFrameMs": 250,
+    "maxLongTaskWorstMs": 250
+  },
+  "steps": [
+    {
+      "js": "window.__h.seed(30, 4)",
+      "waitMs": 300
+    },
+    {
+      "js": "(async()=>{for(let b=0;b<6;b++){window.__h.storm(10,4);await new Promise(r=>requestAnimationFrame(r));}})()",
+      "waitMs": 300
+    },
+    {
+      "js": "window.__h.scrollToBottom()",
+      "waitMs": 200
+    }
+  ],
+  "checks": [
+    {
+      "name": "line-contract",
+      "js": "window.__check.lineContract()"
+    },
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    },
+    {
+      "name": "no-harness-errors",
+      "js": "window.__check.noHarnessErrors()"
+    }
+  ]
+}

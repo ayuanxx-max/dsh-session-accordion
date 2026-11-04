@@ -1,0 +1,31 @@
+{
+  "name": "scroll-jank",
+  "metrics": {
+    "maxWorstFrameMs": 250,
+    "maxLongTaskWorstMs": 250
+  },
+  "steps": [
+    {
+      "js": "window.__h.seed(150, 8)",
+      "waitMs": 500
+    },
+    {
+      "js": "(async()=>{for(let i=0;i<50;i++){window.__h.scrollStep(90);await new Promise(r=>requestAnimationFrame(r));}})()",
+      "waitMs": 300
+    },
+    {
+      "js": "(async()=>{for(let i=0;i<30;i++){window.__h.scrollStep(-120);await new Promise(r=>requestAnimationFrame(r));}})()",
+      "waitMs": 200
+    }
+  ],
+  "checks": [
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    },
+    {
+      "name": "line-contract",
+      "js": "window.__check.lineContract()"
+    }
+  ]
+}

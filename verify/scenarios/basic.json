@@ -1,0 +1,39 @@
+{
+  "name": "accordion-basic",
+  "steps": [
+    {
+      "js": "window.__h.seed(6)",
+      "waitMs": 400
+    }
+  ],
+  "checks": [
+    {
+      "name": "no-harness-errors",
+      "js": "window.__check.noHarnessErrors()"
+    },
+    {
+      "name": "guard-installed",
+      "js": "window.__check.guardInstalled()"
+    },
+    {
+      "name": "line-contract",
+      "js": "window.__check.lineContract()"
+    },
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    },
+    {
+      "name": "click-toggle",
+      "js": "window.__check.clickToggle()"
+    },
+    {
+      "name": "new-turn-folds-previous",
+      "js": "window.__check.newTurnFoldsPrevious()"
+    },
+    {
+      "name": "report-api",
+      "js": "window.__check.reportApi()"
+    }
+  ]
+}

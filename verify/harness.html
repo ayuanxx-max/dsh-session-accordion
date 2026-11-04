@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>dsh-session-accordion · dev harness</title>
+<style>
+  html,body{margin:0;height:100%;font:13px/1.5 system-ui,sans-serif;color:#222;background:#fff}
+  #wrap{display:flex;flex-direction:column;height:100%}
+  #bar{padding:6px 10px;border-bottom:1px solid #e5e5e5;color:#555;font-size:12px;white-space:pre}
+  #scroll{flex:1;overflow:auto;padding:12px 16px}
+  [data-chat-turn]{border:1px solid #eee;border-radius:8px;margin:8px 0;padding:6px}
+  ._bubble_h{padding:4px 6px}
+  ._timeStart_h{color:#999;font-size:11px;padding:0 6px}
+  .proc-token{height:18px;overflow:hidden;color:#666}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar"></div>
+  <div id="scroll"><div data-slot="conversation.chat.flow" id="flow"></div></div>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * 1) 指标：长任务 + 逐帧间隔（jank 用）
+ * ------------------------------------------------------------------ */
+window.__metrics = (function () {
+  var state = { running: false, last: 0, gaps: [], longTasks: [], frames: 0 };
+  var po = null;
+  if (typeof PerformanceObserver === 'function') {
+    try {
+      po = new PerformanceObserver(function (list) {
+        var es = list.getEntries();
+        for (var i = 0; i < es.length; i++) state.longTasks.push(Math.round(es[i].duration));
+      });
+      po.observe({ entryTypes: ['longtask'] });
+    } catch (err) { po = null; }
+  }
+  function loop(t) {
+    if (!state.running) return;
+    if (state.last) { state.gaps.push(t - state.last); state.frames++; }
+    state.last = t;
+    requestAnimationFrame(loop);
+  }
+  function pct(arr, p) {
+    if (!arr.length) return 0;
+    var s = arr.slice().sort(function (a, b) { return b - a; });
+    return s[Math.min(s.length - 1, Math.floor(s.length * p))];
+  }
+  return {
+    start: function () {
+      state.running = true; state.last = 0; state.gaps = []; state.longTasks = []; state.frames = 0;
+      requestAnimationFrame(loop);
+    },
+    stop: function () { state.running = false; },
+    snapshot: function () {
+      return {
+        frames: state.frames,
+        worstFrameMs: Math.round(pct(state.gaps, 0) * 10) / 10,
+        p95FrameMs: Math.round(pct(state.gaps, 0.05) * 10) / 10,
+        longTaskCount: state.longTasks.length,
+        longTaskWorstMs: state.longTasks.length ? Math.max.apply(null, state.longTasks) : 0
+      };
+    }
+  };
+}());
+
+/* ------------------------------------------------------------------ *
+ * 2) 最小 __ModuleLoader__ 桩：client.js 原样加载，不改插件源码
+ * ------------------------------------------------------------------ */
+window.__acErrors = [];
+window.__acWarns = [];
+
+/* 假 uiConversation：只为让 2026-11-04 的 withdraw 兜底真的装上并被断言。
+   两个 Definition 都模拟内核缺陷：chat 已物化，buildViewNode 仍返回 null。 */
+function makeFakeConversation() {
+  var defs = new Map();
+  function makeDefinition(kind) {
+    return {
+      kind: kind,
+      buildViewNode: function (context) {
+        var map = context && context.current;
+        if (!map || typeof map.get !== 'function') return null;
+        var chat = map.get('chat');
+        if (!chat) return null;
+        return null; /* buggy core: withdrew materialized target */
+      }
+    };
+  }
+  defs.set('system-message', makeDefinition('system-message'));
+  defs.set('request-prompt', makeDefinition('request-prompt'));
+  return { events: { definitions: defs, subscribe: function () { return function () {}; } } };
+}
+
+var __fakeConversation = makeFakeConversation();
+window.__mockCtx = {
+  uiConversation: __fakeConversation,
+  get: function (key) { return key === 'uiConversation' ? __fakeConversation : undefined; },
+  inject: function (deps, cb) { try { cb(window.__mockCtx); } catch (err) { window.__acWarns.push(String(err)); } return function () {}; },
+  on: function () { return function () {}; },
+  effect: function () { return function () {}; },
+  emit: function () { return false; }
+};
+
+window.__ModuleLoader__ = {
+  loaded: [],
+  load: function (entry) {
+    if (!entry || typeof entry.factory !== 'function') { window.__acErrors.push('bad entry'); return; }
+    this.loaded.push(entry.id);
+    try {
+      var mod = entry.factory();
+      if (mod && typeof mod.apply === 'function') mod.apply(window.__mockCtx);
+    } catch (err) {
+      window.__acErrors.push(String(err && err.stack || err));
+    }
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * 3) 假会话流：与 DSH 真实 DOM 契约保持一致
+ *    [data-slot="conversation.chat.flow"] > [data-chat-turn=<id>]
+ *      ├─ [data-chat-flow-kind="turn-process"] > button[aria-expanded]
+ *      └─ ._bubble_* + ._timeStart_*
+ * ------------------------------------------------------------------ */
+var flow = document.getElementById('flow');
+var seq = 0;
+
+function buildTurn(id, text, time, tokenLines) {
+  /* DSH 真实结构：同一 data-chat-turn 的「过程节点」和「用户气泡」是**兄弟节点**，
+     不是一个包着两者的 wrapper。插件靠 el.closest(ITEM_SEL) 去重，嵌套会解析成 1 项。 */
+  var frag = document.createDocumentFragment();
+
+  var proc = document.createElement('div');
+  proc.setAttribute('data-chat-turn', id);
+  proc.setAttribute('data-chat-flow-kind', 'turn-process');
+  var btn = document.createElement('button');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.textContent = '过程';
+  proc.appendChild(btn);
+  for (var i = 0; i < tokenLines; i++) {
+    var line = document.createElement('div');
+    line.className = 'proc-token';
+    line.textContent = id + ' · token 流 ' + (i + 1);
+    proc.appendChild(line);
+  }
+
+  var user = document.createElement('div');
+  user.className = 'msg';
+  user.setAttribute('data-chat-turn', id);
+  user.innerHTML = '<div class="_bubble_h">' + text + '</div>' +
+                   '<span class="_timeStart_h">' + time + '</span>';
+
+  frag.appendChild(proc);
+  frag.appendChild(user);
+  return frag;
+}
+
+function fmt(i) {
+  var h = 10 + Math.floor(i / 60), m = i % 60;
+  return '2026-11-04 ' + (h < 10 ? '0' + h : h) + ':' + (m < 10 ? '0' + m : m);
+}
+
+var helpers = {
+  seed: function (n, tokenLines) {
+    flow.innerHTML = '';
+    seq = 0;
+    for (var i = 0; i < n; i++) helpers.addTurn('t' + (++seq), '问题 ' + seq, fmt(i), tokenLines || 3);
+    return flow.querySelectorAll('[data-chat-turn]').length / 2;
+  },
+  addTurn: function (id, text, time, tokenLines) {
+    var el = buildTurn(id || ('t' + (++seq)), text || ('问题 ' + seq), time || fmt(seq), tokenLines || 3);
+    flow.appendChild(el);
+    return el;
+  },
+  /** 模拟流式：快速追加 n 轮，逼出 MutationObserver 的重算开销。 */
+  storm: function (n, tokenLines) {
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < n; i++) frag.appendChild(buildTurn('s' + (++seq), '流式 ' + seq, fmt(seq), tokenLines || 3));
+    flow.appendChild(frag);
+    return n;
+  },
+  clear: function () { flow.innerHTML = ''; seq = 0; },
+  scrollToBottom: function (top) {
+    var s = document.getElementById('scroll');
+    s.scrollTop = (top === undefined) ? s.scrollHeight : top;
+    return s.scrollTop;
+  },
+  scrollStep: function (dy) {
+    var s = document.getElementById('scroll');
+    s.scrollTop = Math.min(s.scrollHeight, s.scrollTop + dy);
+    return s.scrollTop;
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * 4) 断言（返回 {ok, detail}，由 verify-page.py 统一收集）
+ * ------------------------------------------------------------------ */
+function groups() {
+  var all = flow.querySelectorAll('[data-chat-turn]');
+  var out = [], byId = {};
+  for (var i = 0; i < all.length; i++) {
+    var el = all[i], id = el.getAttribute('data-chat-turn');
+    if (!byId[id]) { byId[id] = { id: id, items: [] }; out.push(byId[id]); }
+    byId[id].items.push(el);
+  }
+  return out;
+}
+function isHidden(el) { return el.getAttribute('data-ac-hidden') === '1'; }
+function procOf(g) {
+  for (var i = 0; i < g.items.length; i++) if (g.items[i].getAttribute('data-chat-flow-kind') === 'turn-process') return g.items[i];
+  return null;
+}
+function userOf(g) {
+  for (var i = 0; i < g.items.length; i++) if (g.items[i].querySelector('[class*="_bubble"]')) return g.items[i];
+  return null;
+}
+
+var checks = {
+  onlyNewestExpanded: function () {
+    var gs = groups(); if (!gs.length) return { ok: false, detail: 'no turns' };
+    var expanded = gs.filter(function (g) { var p = procOf(g); return p && !isHidden(p); }).map(function (g) { return g.id; });
+    var want = gs[gs.length - 1].id;
+    return { ok: expanded.length === 1 && expanded[0] === want, detail: { expanded: expanded, want: want, turns: gs.length } };
+  },
+  lineContract: function () {
+    /* 折叠的轮次才该变成一行（data-ac-line/time/text）；展开的轮次显示真实内容。 */
+    var gs = groups(), bad = [], open = [];
+    gs.forEach(function (g) { var p = procOf(g); if (p && !isHidden(p)) open.push(g.id); });
+    gs.forEach(function (g) {
+      var u = userOf(g);
+      if (!u) { bad.push(g.id + ':no-user'); return; }
+      if (open.indexOf(g.id) >= 0) {
+        if (u.getAttribute('data-ac-line') === '1') bad.push(g.id + ':expanded-but-line');
+        return;
+      }
+      if (u.getAttribute('data-ac-line') !== '1') bad.push(g.id + ':not-line');
+      if (!u.getAttribute('data-ac-time')) bad.push(g.id + ':no-time');
+      if (!u.getAttribute('data-ac-text')) bad.push(g.id + ':no-text');
+    });
+    return { ok: bad.length === 0, detail: { bad: bad.slice(0, 8), count: gs.length, expanded: open } };
+  },
+  clickToggle: function () {
+    var gs = groups(); if (!gs.length) return { ok: false, detail: 'no turns' };
+    var first = gs[0], p = procOf(first), u = userOf(first);
+    u.click();
+    var opened = !isHidden(p);
+    u.click();
+    var closed = isHidden(p);
+    return { ok: opened && closed && isHidden(p), detail: { opened: opened, closed: closed } };
+  },
+  /* 点开一条旧轮次 → 追加新轮次 → 旧轮次必须被折叠回去。DOM 变更走 MutationObserver + rAF，
+     所以断言要等两帧，不能同步读。 */
+  newTurnFoldsPrevious: function () {
+    var gs = groups();
+    var first = gs[0], firstProc = procOf(first);
+    userOf(first).click();
+    return new Promise(function (resolve) {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          if (isHidden(firstProc)) { resolve({ ok: false, detail: 'manual expand failed' }); return; }
+          helpers.addTurn('t-new', '问题 新', '2026-11-04 12:00');
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              var gs2 = groups();
+              var stillOpen = !isHidden(firstProc);
+              var newestOpen = !isHidden(procOf(gs2[gs2.length - 1]));
+              resolve({ ok: !stillOpen && newestOpen,
+                        detail: { previousStillOpen: stillOpen, newestOpen: newestOpen } });
+            });
+          });
+        });
+      });
+    });
+  },
+  guardInstalled: function () {
+    var g = window.__acWithdrawGuard;
+    var ok = !!g && g.active === true &&
+             (g.installed || []).indexOf('system-message') >= 0 &&
+             (g.installed || []).indexOf('request-prompt') >= 0;
+    return { ok: ok, detail: { state: g ? { active: g.active, installed: g.installed, hits: g.hits } : null, warns: window.__acWarns } };
+  },
+  reportApi: function () {
+    var r = (typeof window.__acReport === 'function') ? window.__acReport() : null;
+    return { ok: !!r && r.flow === true && Array.isArray(r.turns) && r.turns.length > 0,
+             detail: r ? { flow: r.flow, turns: r.turns.length, expandedId: r.expandedId } : { missing: true } };
+  },
+  noHarnessErrors: function () {
+    return { ok: (window.__acErrors || []).length === 0 && window.__ModuleLoader__.loaded.indexOf('dsh-session-accordion') >= 0,
+             detail: { errors: window.__acErrors || [], loaded: window.__ModuleLoader__.loaded } };
+  }
+};
+
+window.__h = helpers;
+window.__check = checks;
+window.__bar = function (text) { document.getElementById('bar').textContent = text; };
+</script>
+<script src="../client.js"></script>
+<script>
+  /* 等插件装完 style + observer 再开放断言 */
+  (function () {
+    var tries = 0;
+    (function tick() {
+      var style = document.getElementById('dsh-auto-collapse-style');
+      if (style || tries++ > 40) {
+        window.__h.seed(6);
+        window.__bar('harness ready · module=' + window.__ModuleLoader__.loaded.join(',') +
+                     ' · style=' + (!!style) + ' · errors=' + (window.__acErrors.length));
+        return;
+      }
+      setTimeout(tick, 25);
+    }());
+  }());
+</script>
+</body>
+</html>

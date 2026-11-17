@@ -157,7 +157,7 @@ window.__ModuleLoader__.load({
         '  font-size:13px;line-height:1;cursor:pointer;opacity:.45;background:transparent;color:inherit;',
         '  border-radius:6px;transition:opacity .12s ease,background-color .12s ease}',
         '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
-        '.dsh-ac-pinlayer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:4}',
+        '.dsh-ac-pinlayer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:60}',
         '.dsh-ac-pinlayer .dsh-ac-pin{pointer-events:auto}',
         '.dsh-ac-pin[data-ac-on="1"]{opacity:1}',
         '.dsh-ac-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
@@ -662,8 +662,8 @@ window.__ModuleLoader__.load({
     let pinLayerEl = null;
     let pinLayerHost = null;
     const pinBtns = new Map();
-    const pinGeom = new Map();
-    let pinShape = '';
+    let pinHostNode = null;
+    let pinHostSerial = 0;
     let chCache = { font: '', w: 0 };
     let measureCtx = null;
 
@@ -690,21 +690,38 @@ window.__ModuleLoader__.load({
       return w;
     }
 
-    /** 钉住层放在 flow 内部：随聊天内容一起滚动，滚动时不需要任何 JS 重排。 */
-    function pinLayer(flow) {
+    /** 从行往上找真正的滚动容器（flow 本身常常是 display:contents，没有盒子）。 */
+    function scrollHostOf(el) {
+      let node = el === null ? null : el.parentElement;
+      while (node !== null && node !== document.body && node !== document.documentElement) {
+        let cs = null;
+        try { cs = window.getComputedStyle(node); } catch (err) { cs = null; }
+        if (cs !== null && cs.overflowY !== 'visible' && cs.overflowY !== 'hidden') return node;
+        node = node.parentElement;
+      }
+      return null;
+    }
+
+    /** 钉住层挂进滚动容器：随内容原生滚动，滚动时不需要任何 JS 重排。 */
+    function pinLayer(host) {
       if (pinLayerEl === null) {
         pinLayerEl = document.createElement('div');
         pinLayerEl.className = 'dsh-ac-pinlayer';
       }
-      if (pinLayerHost !== flow || pinLayerEl.parentNode !== flow) {
-        pinLayerHost = flow;
-        try {
-          if (window.getComputedStyle(flow).position === 'static') flow.style.position = 'relative';
-        } catch (err) { /* 定位失败就用现有包含块 */ }
+      if (pinLayerHost !== host || pinLayerEl.parentNode !== host) {
+        pinLayerHost = host;
         while (pinLayerEl.firstChild !== null) pinLayerEl.removeChild(pinLayerEl.firstChild);
         pinBtns.clear();
-        pinGeom.clear();
-        flow.appendChild(pinLayerEl);
+        // 显式把父容器变成包含块：否则层的定位基准会落到更外层，和行坐标对不上（错位根因）。
+        if (host !== document.body) {
+          try {
+            if (window.getComputedStyle(host).position === 'static') {
+              host.style.position = 'relative';
+              host.setAttribute('data-ac-pos', '1');
+            }
+          } catch (err) { /* 拿不到样式就按现有包含块 */ }
+        }
+        host.appendChild(pinLayerEl);
       }
       return pinLayerEl;
     }
@@ -712,124 +729,170 @@ window.__ModuleLoader__.load({
     /** 钉住按钮统一用 document 捕获阶段代理：行/层可能被 React 重渲染替换，逐按钮监听会失效。 */
     let pinClickHooked = false;
 
-    function hookPinClicks() {
-      if (pinClickHooked) return;
-      pinClickHooked = true;
-      document.addEventListener('click', function (event) {
-        const target = event.target;
-        if (target === null || typeof target.closest !== 'function') return;
-        const btn = target.closest('.dsh-ac-pin');
-        if (btn === null) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const turn = btn.getAttribute('data-ac-for');
-        if (!turn) return;
+    /** 钉住热区：真实聊天区里按钮会被覆盖层挡住指针，所以点击判定挂到行本身（行点击是可靠的）。 */
+    function pinHotspot(rowEl, clientX, clientY, rowRect) {
+      const row = rowRect === undefined ? rowEl.getBoundingClientRect() : rowRect;
+      if (!(row.width > 60 && row.height > 0)) return false;
+      const folded = rowEl.getAttribute(LINE_ATTR) === '1';
+      let endX = row.right;
+      let font = '';
+      if (folded) {
+        const cs = window.getComputedStyle(rowEl, '::after');
+        font = fontOf(cs);
+        let tw = 0;
         try {
-          togglePin(turn);
-          apply();
-        } catch (e) { /* 静默：下一轮 schedule 会重试 */ }
-      }, true);
+          const ctx = ctx2d();
+          ctx.font = font;
+          tw = ctx.measureText(rowEl.getAttribute(TEXT_ATTR) || '').width;
+        } catch (err) { tw = 0; }
+        endX = Math.min(row.left + 104 + tw, row.right - 62);
+      } else {
+        const bubble = rowEl.querySelector('[class*="_bubble"]');
+        endX = bubble === null ? row.right : bubble.getBoundingClientRect().right;
+        font = fontOf(window.getComputedStyle(rowEl));
+      }
+      const x = Math.min(endX + chWidthOf(font) * 2, row.right - 34);
+      const y = row.top + row.height / 2;
+      return Math.abs(clientX - x) <= 13 && Math.abs(clientY - y) <= 13;
     }
 
     /**
      * 位置：行文字末尾 + 2 字符，垂直居中于该行（折叠行取摘要文字末尾，展开行取气泡右缘）。
-     * 性能：几何按 (turn | 文本 | 行宽) 缓存，未变则既不读布局也不写样式；滚动不触发重算。
+     * 性能：每轮"只读一批、再只写一批"（读写不交替 => 不触发逐行强制重排），
+     * 且只给视口内的行写坐标；层在滚动容器内，滚动本身不产生任何 JS 工作。
      */
+    let pinFixRaf = 0;
+    let pinFixTimer = 0;
+    let lastPinFlow = null;
+    let lastPinRows = null;
+
+    function pinFixOnce() {
+      const flow = lastPinFlow;
+      const rows = lastPinRows;
+      if (flow === null || rows === null || !flow.isConnected || CFG.pin !== true) return;
+      syncPins(flow, rows);
+    }
+
+    /** 行位置会被后续布局再改一次（日期头/图片/流式增高），一帧后再校正一次，150ms 内再兜一次。 */
+    function schedulePinFix() {
+      if (pinFixRaf !== 0) window.cancelAnimationFrame(pinFixRaf);
+      pinFixRaf = window.requestAnimationFrame(function () {
+        pinFixRaf = 0;
+        pinFixOnce();
+      });
+      if (pinFixTimer !== 0) window.clearTimeout(pinFixTimer);
+      pinFixTimer = window.setTimeout(function () {
+        pinFixTimer = 0;
+        pinFixOnce();
+      }, 120);
+    }
+
     function syncPins(flow, rendered) {
-      hookPinClicks();
-      const layer = pinLayer(flow);
-      const keep = new Set();
-      const lw = flow.clientWidth;
-      // 结构变化（日期头/分叉徽标插入、展开态切换、行数变化）会让整列行位置平移，
-      // 这里用一次廉价的形状快照判断，变了才整批重算；滚动时形状不变 => 零布局读取。
-      const shape = expandedId + '|' + flow.childElementCount + '|' +
-        flow.querySelectorAll('[' + DAY_ATTR + ']').length + '|' +
-        flow.querySelectorAll('.dsh-ac-fork').length;
-      if (shape !== pinShape) {
-        pinShape = shape;
-        pinGeom.clear();
+      if (pinHostNode === null || !pinHostNode.isConnected) {
+        pinHostNode = scrollHostOf(flow) || document.body;
+        pinHostSerial += 1;
       }
-      for (let i = 0; i < rendered.length; i += 1) {
-        const user = rendered[i].user;
-        const id = user.getAttribute('data-chat-turn');
-        if (id === null) continue;
-        keep.add(id);
-        let btn = pinBtns.get(id);
-        let fresh = false;
-        if (btn === undefined || !btn.isConnected || btn.parentNode !== layer) {
-          btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'dsh-ac-pin';
-          btn.setAttribute('data-ac-for', id);
-          layer.appendChild(btn);
-          pinBtns.set(id, btn);
-          fresh = true;
+      const host = pinHostNode;
+      const layer = pinLayer(host);
+      const isBody = host === document.body;
+      const scrollTop = isBody ? (window.pageYOffset || 0) : (host.scrollTop || 0);
+      const scrollLeft = isBody ? (window.pageXOffset || 0) : (host.scrollLeft || 0);
+      let hTop = 0;
+      let hLeft = 0;
+      let hBottom = window.innerHeight;
+      if (!isBody) {
+        const hr = host.getBoundingClientRect();
+        hTop = hr.top;
+        hLeft = hr.left;
+        hBottom = hr.bottom;
+      }
+      const keep = new Set();
+      const plan = [];
+      if (CFG.pin === true) {
+        // 阶段一：只读
+        for (let i = 0; i < rendered.length; i += 1) {
+          const user = rendered[i].user;
+          const id = user.getAttribute('data-chat-turn');
+          if (id === null) continue;
+          keep.add(id);
+          const on = pinned.has(id);
+          const row = user.getBoundingClientRect();
+          if (!(row.width > 60 && row.height > 0)) {
+            plan.push({ id, on, show: false });
+            continue;
+          }
+          if (row.bottom < hTop - 160 || row.top > hBottom + 160) {
+            plan.push({ id, on, show: false });
+            continue;
+          }
+          const folded = user.getAttribute(LINE_ATTR) === '1';
+          let endX = row.right;
+          let font = '';
+          if (folded) {
+            const cs = window.getComputedStyle(user, '::after');
+            font = fontOf(cs);
+            const body = user.getAttribute(TEXT_ATTR) || '';
+            let tw = 0;
+            try {
+              const ctx = ctx2d();
+              ctx.font = font;
+              tw = ctx.measureText(body).width;
+            } catch (err) { tw = 0; }
+            endX = Math.min(row.left + 104 + tw, row.right - 62);
+          } else {
+            const bubble = user.querySelector('[class*="_bubble"]');
+            endX = (bubble === null ? row : bubble.getBoundingClientRect()).right;
+            font = fontOf(window.getComputedStyle(user));
+          }
+          const ch = chWidthOf(font);
+          plan.push({
+            id: id,
+            on: on,
+            show: true,
+            x: Math.round(Math.min(endX + ch * 2, row.right - 34) - hLeft + scrollLeft),
+            y: Math.round(row.top + row.height / 2 - hTop + scrollTop)
+          });
         }
-        if (CFG.pin !== true) {
-          btn.style.display = 'none';
-          continue;
+        // 阶段二：只写
+        for (let i = 0; i < plan.length; i += 1) {
+          const item = plan[i];
+          let btn = pinBtns.get(item.id);
+          if (btn !== undefined && (!btn.isConnected || btn.parentNode !== layer)) {
+            btn = undefined;
+            pinBtns.delete(item.id);
+          }
+          if (btn === undefined) {
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'dsh-ac-pin';
+            btn.setAttribute('data-ac-for', item.id);
+            layer.appendChild(btn);
+            pinBtns.set(item.id, btn);
+          }
+          const glyph = item.on ? '📌' : '📍';
+          if (btn.textContent !== glyph) btn.textContent = glyph;
+          const flag = item.on ? '1' : '0';
+          if (btn.getAttribute('data-ac-on') !== flag) {
+            btn.setAttribute('data-ac-on', flag);
+            btn.setAttribute('aria-pressed', item.on ? 'true' : 'false');
+          }
+          const label = item.on ? t('unpin') : t('pin');
+          if (btn.getAttribute('aria-label') !== label) {
+            btn.setAttribute('aria-label', label);
+            btn.setAttribute('title', label);
+          }
+          const show = item.show;
+          const want = show ? 'inline-flex' : 'none';
+          if (btn.style.display !== want) btn.style.display = want;
+          if (!show) continue;
+          btn.style.left = item.x + 'px';
+          btn.style.top = item.y + 'px';
         }
-        const on = pinned.has(id);
-        const glyph = on ? '📌' : '📍';
-        if (btn.textContent !== glyph) btn.textContent = glyph;
-        const flag = on ? '1' : '0';
-        if (btn.getAttribute('data-ac-on') !== flag) {
-          btn.setAttribute('data-ac-on', flag);
-          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        }
-        const label = on ? t('unpin') : t('pin');
-        if (btn.getAttribute('aria-label') !== label) {
-          btn.setAttribute('aria-label', label);
-          btn.setAttribute('title', label);
-        }
-        const folded = user.getAttribute(LINE_ATTR) === '1';
-        const body = folded ? (user.getAttribute(TEXT_ATTR) || '') : '';
-        const key = folded
-          ? 'f|' + body + '|' + lw
-          : 'e|' + ((rendered[i].body || '').length) + '|' + lw;
-        const geom = pinGeom.get(id);
-        if (!fresh && geom !== undefined && geom.key === key) {
-          if (btn.style.display !== 'inline-flex') btn.style.display = 'inline-flex';
-          continue;
-        }
-        const row = user.getBoundingClientRect();
-        if (!(row.width > 60 && row.height > 0)) {
-          btn.style.display = 'none';
-          pinGeom.delete(id);
-          continue;
-        }
-        let endX = row.right;
-        let font = '';
-        if (folded) {
-          const cs = window.getComputedStyle(user, '::after');
-          font = fontOf(cs);
-          let tw = 0;
-          try {
-            const ctx = ctx2d();
-            ctx.font = font;
-            tw = ctx.measureText(body).width;
-          } catch (err) { tw = 0; }
-          endX = Math.min(row.left + 104 + tw, row.right - 62);
-        } else {
-          const bubble = user.querySelector('[class*="_bubble"]');
-          const box = bubble === null ? user : bubble;
-          endX = box.getBoundingClientRect().right;
-          font = fontOf(window.getComputedStyle(user));
-        }
-        const ch = chWidthOf(font);
-        const x = Math.min(endX + ch * 2, row.right - 34);
-        const y = row.top + row.height / 2;
-        const lr = layer.getBoundingClientRect();
-        btn.style.display = 'inline-flex';
-        btn.style.left = Math.round(x - lr.left) + 'px';
-        btn.style.top = Math.round(y - lr.top) + 'px';
-        pinGeom.set(id, { key, x, y });
       }
       pinBtns.forEach(function (btn, id) {
-        if (keep.has(id)) return;
+        if (keep.has(id) && CFG.pin === true && btn.isConnected) return;
         if (btn.parentNode !== null) btn.parentNode.removeChild(btn);
         pinBtns.delete(id);
-        pinGeom.delete(id);
       });
     }
 
@@ -1146,7 +1209,6 @@ window.__ModuleLoader__.load({
           }
         }
       }
-      syncPins(flow, rendered);
       if (query !== '') {
         const keep = [];
         for (let i = 0; i < rendered.length; i += 1) {
@@ -1163,6 +1225,12 @@ window.__ModuleLoader__.load({
       }
       applyDays(flow, rendered);
       applyForkChip(flow);
+      // 放在最后一次会改变行位置的 DOM 操作之后：日期头/分叉徽标会让所有行下移，
+      // 先写坐标就会整体错位（真机"图标乱放"的根因之一）。
+      syncPins(flow, rendered);
+      lastPinFlow = flow;
+      lastPinRows = rendered;
+      schedulePinFix();
       saveMem();
       return list.length;
     }
@@ -1183,8 +1251,16 @@ window.__ModuleLoader__.load({
       if (pinBtn !== null) {
         event.preventDefault();
         event.stopPropagation();
-        const owner = pinBtn.closest('[data-chat-turn]');
-        if (owner !== null) togglePin(owner.getAttribute('data-chat-turn'));
+        const id = pinBtn.getAttribute('data-ac-for');
+        if (id) togglePin(id);
+        return;
+      }
+      const pinRow = target.closest('[data-chat-turn]');
+      if (CFG.pin === true && pinRow !== null && pinHotspot(pinRow, event.clientX, event.clientY)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const rowId = pinRow.getAttribute('data-chat-turn');
+        if (rowId) togglePin(rowId);
         return;
       }
       if (target.closest('a,button') !== null) return;

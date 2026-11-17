@@ -1,5 +1,20 @@
 # Changelog · 更新记录
 
+## 3.0.0-live 修订 2（钉住：位置基准 + 点击热区，2026-11-17）
+
+真机反馈：**点钉住后 📌 错位、乱放，还有一堆贴在正文里**。三条独立根因：
+
+| 现象 | 根因 | 改法 |
+| --- | --- | --- |
+| 📌 整体偏移、飘在正文里 | 钉住层挂到 `scrollHostOf(flow)`，但该容器 `position` 是 `static`，层的**包含块落到了更外层**；写坐标却按容器 `rect` 减去，基准不一致 | `pinLayer(host)` 里对非 `body` 容器补 `position:relative`（打 `data-ac-pos` 标记），层与容器共用同一基准 |
+| 一有日期头/分叉徽标，整批下移约 30px | `syncPins()` 在 `applyDays()/applyForkChip()` **之前**执行，之后插入的日期头把所有行往下推 | `syncPins()` 移到 apply 末尾（最后一次改行位置的 DOM 操作之后），并加 `schedulePinFix()`：下一帧 + 120ms 各校正一次，兜住图片加载/流式增高 |
+| 点 📌 没反应（个别环境点到行上） | 聊天区覆盖层吃掉按钮的 pointer 事件，`event.target` 不是按钮 | 点击判定改挂到**行本身**：`pinHotspot(rowEl, clientX, clientY)` 用与渲染同一套公式算热区（±13px），命中就切钉住；按钮自身的 `data-ac-for` 分支保留 |
+| 拖动滚动掉帧 | 每轮 apply 对每行先写 `left/top` 再读下一行 rect（读写交替 → 逐行强制重排） | 改成"**先只读一批、再只写一批**"，且只给视口内（±160px）的行写坐标；层在滚动容器内，滚动本身零 JS |
+
+验证：11 场景 / **38 断言全绿**（含 `b.pin-geometry`）；`tools\check.ps1` = `RESULT: PASS (13 checks)`；`node --check client.js` 通过；真机重新加载界面后连点 📌 复核（截图 `docs/live/3.0-pin-fix.png`）。
+
+回滚：`git revert <本提交>`；或运行时 `__acConfig({pin:false})` 关掉钉住；`localStorage.removeItem('dsh-ac-config')` 复位配置。版本仍为本地 `3.0.0`（未 npm publish / 无 tag / 无 Release）。
+
 ## 3.0.0-live 修订（钉住按钮：性能 + 对齐，2026-11-17）
 
 真机反馈两条：**拖动滚动严重掉帧**、**📌 位置错乱**。根因与改法：

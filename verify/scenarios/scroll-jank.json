@@ -42,6 +42,10 @@
     {
       "name": "scroll-up-keeps-expansion",
       "js": "window.__check.scrollUpKeepsExpansion()"
+    },
+    {
+      "name": "identity-stable",
+      "js": "window.__check.identityStable()"
     }
   ]
 }

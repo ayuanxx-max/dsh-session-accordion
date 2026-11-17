@@ -104,6 +104,10 @@ window.__ModuleLoader__.load({
     let seenIds = [];
     /** 上一帧的行节点；整批失联 = 会话被整体替换（turnId 可能重号）。 */
     let seenNodes = [];
+    /** 最近一次“不交集”批次出现的时刻：只有持续存在才认定为真的换会话。 */
+    let disjointSince = 0;
+    /** 用户手动把唯一展开的那条也收起来了：此后只有新轮/换会话才会自动展开。 */
+    let userFolded = false;
 
     const textCache = new WeakMap();
     /** 行级渲染状态：签名不变就整行跳过（F：增量渲染）。 */
@@ -179,7 +183,8 @@ window.__ModuleLoader__.load({
         + ' NOVIS=' + c.noVis
         + ' PV=' + c.pv + '/' + c.pvSupp + ' day+=' + c.daysAdd + '-' + c.daysDel
         + ' dh=' + c.hChange + ' H=' + c.hWhole + ' flip=' + c.flip
-        + '\n' + (DBG.probe || '') + '\n' + DBG.lines.join('\n');
+        + '\n' + (DBG.probe || '') + '\n' + DBG.lines.join('\n')
+
     }
     function dbg(label) {
       if (DBG.on !== true) return;
@@ -677,7 +682,24 @@ window.__ModuleLoader__.load({
     let memKey = '';
     let savedState = '';
 
+    /** 侧栏当前会话的稳定标识：优先用 DOM 上的 id 属性，绝不靠会变的文字。 */
+    function sessionIdOf() {
+      try {
+        const row = document.querySelector('[data-ft-session][aria-current="true"],[data-ft-session][data-active="true"]');
+        if (row !== null) {
+          const names = ['data-session-id', 'data-session', 'data-ft-session', 'data-id', 'id'];
+          for (let i = 0; i < names.length; i += 1) {
+            const v = row.getAttribute(names[i]);
+            if (v !== null && String(v).length >= 6) return 'id:' + String(v);
+          }
+        }
+      } catch (err) { /* 退回标题 */ }
+      return '';
+    }
+
     function sessionKey(flow) {
+      const stable = sessionIdOf();
+      if (stable !== '') return 'ac:' + stable;
       let title = '';
       try {
         const row = document.querySelector('[data-ft-session][aria-current="true"],[data-ft-session][data-active="true"]');
@@ -696,6 +718,8 @@ window.__ModuleLoader__.load({
       } catch (err) {
         path = '';
       }
+      // 标题里可能带“3小时/刚刚/N 条”这类会随时间变的尾巴，必须剥掉，否则 key 会漂移。
+      title = title.replace(/[\s·|]*(刚刚|\d+\s*(秒|分钟|分|小时|天|周|个月|年|s|m|h|d|min|sec|hr)(\s*(前|ago))?)/gi, ' ').replace(/\s+/g, ' ').trim();
       const seed = title + '|' + path;
       let hash = 5381;
       for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) + hash + seed.charCodeAt(i)) | 0;
@@ -805,8 +829,9 @@ window.__ModuleLoader__.load({
               host.style.position = 'relative';
               host.setAttribute('data-ac-pos', '1');
             }
-            // 关闭滚动锚定：上面内容高度一变，浏览器会自己挪 scrollTop，看起来就是“上下乱跳”
-            host.style.overflowAnchor = 'auto';
+            // 不要碰 overflow-anchor：应用自己设的值（多半是 none）才是它对滚动位置的控制权。
+            // 强行改成 auto 会让浏览器在 React 整体重建列表时重挑锚点，
+            // 锚点一丢就落到列表末尾 —— 表现就是“往上滚，页面突然弹到底部”，而且不留任何 scrollTop 写记录。
           } catch (err) { /* 拿不到样式就按现有包含块 */ }
         }
         host.appendChild(pinLayerEl);
@@ -1345,7 +1370,8 @@ window.__ModuleLoader__.load({
 
     /** 只清“缓存”，保留 expandedId / 钉住：容器一时空掉不该把展开状态清成最新一条。 */
     function dropSeen() {
-      seenIds = [];
+      // 只丢掉节点引用，**绝不丢掉 seenIds**：加载更早 / 虚拟滚动会让 flow 闪空一帧，
+      // 一旦清空参照系，回来的列表就会被当成“首次渲染”或“换会话”，把展开目标改掉。
       seenNodes = [];
     }
 
@@ -1355,6 +1381,8 @@ window.__ModuleLoader__.load({
       expandedId = null;
       seenIds = [];
       seenNodes = [];
+      disjointSince = 0;
+      userFolded = false;
     }
 
     /** 任意一行有盒子就算视图可见：只看第一行会被我们自己折叠掉的节点误判。 */
@@ -1368,14 +1396,6 @@ window.__ModuleLoader__.load({
     }
 
     /** 新 id 集是旧集的前缀 = 尾部整段消失（换会话/整批替换）；虚拟滚动只会掐掉头部。 */
-    function isChopTail(prev, ids) {
-      if (ids.length >= prev.length) return false;
-      for (let i = 0; i < ids.length; i += 1) {
-        if (ids[i] !== prev[i]) return false;
-      }
-      return true;
-    }
-
     function isAppend(prev, ids) {
       if (prev.length === 0 || ids.length <= prev.length) return false;
       for (let i = 0; i < prev.length; i++) {
@@ -1389,7 +1409,7 @@ window.__ModuleLoader__.load({
      *   整批替换（无交集）= 换会话 → 最新；新轮追加 → 最新；
      *   向上加载历史（交集仍在）= 保持；展开目标消失 → 最新。
      */
-    function trackExpanded(flow, list, switched, resting) {
+    function trackExpanded(list) {
       const ids = list.map(function (group) {
         return group.id;
       });
@@ -1403,38 +1423,41 @@ window.__ModuleLoader__.load({
           break;
         }
       }
+      // 换会话 = 两次列表“完全不交集”（不是 key 变、也不是闪空），且这个状态持续一小段时间。
+      // 首屏、加载更早、React 整批重建都会短暂不交集，靠时间窗把它们滤掉。
+      const disjoint = !overlap && prev.length >= 2 && ids.length >= 2;
+      if (disjoint) {
+        if (disjointSince === 0) disjointSince = Date.now();
+      } else {
+        disjointSince = 0;
+      }
+      // 120ms ≈ 两帧：容器闪空在这一层已经被“0 行直接返回”挡住，整批重建也会带着旧 id 回来，
+      // 只有真的换了会话才会持续“完全不交集”。
+      const realSwitch = disjoint && Date.now() - disjointSince >= 120;
       switchedNow = false;
-      if (switched === true && !overlap) {
-        // 真的换了会话（key 变了且 id 一个都不重合）：回到“只展开最新一条”
+      if (realSwitch) {
+        // 真的换了会话（两次列表完全不交集）：回到“只展开最新一条”
         switchedNow = true;
+        userFolded = false;
         expandedId = last;
         seenIds = ids;
         seenNodes = [];
+        disjointSince = 0;
         for (let i = 0; i < list.length; i += 1) {
           for (let j = 0; j < list[i].items.length; j += 1) seenNodes.push(list[i].items[j]);
         }
         return ids;
       }
-      const keepCurrent = expandedId !== null && ids.indexOf(expandedId) !== -1;
-      if (prev.length === 0) {
-        // 首次渲染 / 容器刚从空态恢复：只有确实还没有展开目标时才选最新，
-        // 否则“容器闪一下空”就会把用户正看着的轮次折掉、换成最新一条（= 乱打开 + 视口跳）。
-        if (!keepCurrent) expandedId = last;
-      } else {
-        // 只认 id 层的整批替换（换会话）。绝不能拿“节点是否还在 DOM”判断：
-        // 流式渲染时 React 会把行全部重建一次，旧节点集体消失，会被误判成换会话。
-        if (!overlap) {
-          expandedId = last;
-        } else if (isAppend(prev, ids)) {
-          expandedId = last;
-        } else if (isChopTail(prev, ids) && resting === true) {
-          // 尾部整段消失也可能是滚动时的虚拟卸载：只有“停着不动”时才当成换会话
-          expandedId = last;
-        }
-        // 其余情况保持：虚拟滚动会把展开行临时移出 DOM，此时若改判“最新一条”，
-        // 它回到 DOM 时是折叠态 → 视口上方内容突然变矮 → 上下乱跳。
+      // 展开目标只允许在两种情况下自动改变：还没有目标（且用户没主动收起）、新轮追加。
+      // 其余一切 —— 虚拟滚动把行卸载、加载更早、React 整批重建、key 抖动、容器闪空 ——
+      // 都必须保持不动。以前这里的 `!keepCurrent` / `isChopTail` 分支就是“收起最近一条、
+      // 打开别的、视口上下跳”的直接来源：展开目标一旦被虚拟卸载，ids 里就找不到它。
+      if (expandedId === null && userFolded !== true) {
+        expandedId = last;
+      } else if (isAppend(prev, ids)) {
+        expandedId = last;
       }
-      seenIds = ids;
+      if (!disjoint) seenIds = ids;
       seenNodes = [];
       for (let i = 0; i < list.length; i += 1) {
         for (let j = 0; j < list[i].items.length; j += 1) seenNodes.push(list[i].items[j]);
@@ -1452,6 +1475,7 @@ window.__ModuleLoader__.load({
     }
 
     /** 真正在滚的容器：从一条“当前 DOM 里的行”向上找，避免拿到过期 flow 的祖先链。 */
+
     function chatScrollerFor(flow) {
       if (chatScroller !== null && chatScroller.isConnected && chatScroller.contains(flow)) return chatScroller;
       let probe = flow;
@@ -1539,7 +1563,7 @@ window.__ModuleLoader__.load({
         DBG.counters.keyChange += 1;
         dbg('KEY ' + String(memKey) + ' -> ' + String(key));
       }
-      const ids = trackExpanded(flow, list, key !== memKey, Date.now() >= scrollQuietUntil);
+      const ids = trackExpanded(list);
       // 记忆只在“真换会话”时恢复。同一个会话内滚动导致 key 抖动时，
       // 恢复旧记忆会把展开目标换成历史上某一条 —— 这正是“收起最新一条又打开别的”的来源。
       if (switchedNow && restored !== null && restored.expanded !== undefined &&
@@ -1567,12 +1591,6 @@ window.__ModuleLoader__.load({
       }
       const hWhole0 = flow.scrollHeight;
       const scroller = chatScrollerFor(flow) || scrollWatchedHost;
-      // 应用可能自己把滚动锚定关掉；这里只把它恢复成 auto（不写 scrollTop）
-      try {
-        if (scroller !== null && scroller.isConnected && scroller.style.overflowAnchor === 'none') {
-          scroller.style.overflowAnchor = 'auto';
-        }
-      } catch (err) { /* 忽略 */ }
       stats.passes += 1;
       stats.rows += list.length;
       const rendered = [];
@@ -1701,6 +1719,7 @@ window.__ModuleLoader__.load({
       if (!id) return;
       if (isPinned(id)) return;
       expandedId = expandedId === id ? null : id;
+      userFolded = expandedId === null;
       apply(true);
       announce((expandedId === id ? t('expand') : t('collapse')) + ' · ' + id);
     }
@@ -1761,6 +1780,7 @@ window.__ModuleLoader__.load({
       if (!typing && key === 'Escape') {
         event.preventDefault();
         expandedId = null;
+        userFolded = true;      // 用户主动全收：下一次 apply 不许又把最新一条弹开
         apply(true);
         announce(t('collapse'));
         return;
@@ -1792,6 +1812,17 @@ window.__ModuleLoader__.load({
           console.warn('[auto-collapse] apply failed', err);
         }
       });
+    }
+
+    /** 测试钩子：把“记住的上一批行 / 展开目标”清干净，模拟一次真·首屏。 */
+    function forgetAll() {
+      expandedId = null;
+      seenIds = [];
+      seenNodes = [];
+      disjointSince = 0;
+      userFolded = false;
+      DBG.lastExpanded = null;
+      lastLayoutSig = '';
     }
 
     function report() {
@@ -1885,7 +1916,8 @@ window.__ModuleLoader__.load({
       window.addEventListener('resize', schedule);
       timer = setInterval(schedule, 1500);
       setTimeout(schedule, 300);
-      window.__acReport = report;
+      window.__acForget = forgetAll;
+    window.__acReport = report;
       window.__acStop = stop;
       window.__acStart = start;
       window.__acConfig = function (next) {

@@ -163,6 +163,9 @@ function fmt(i) {
 
 var helpers = {
   seed: function (n, tokenLines) {
+    // “从零装载一份新记录” = 一次真·首屏：连插件的身份状态一起清掉，
+    // 否则上一个用例留下的展开目标会让本用例看到残留状态。
+    if (typeof window.__acForget === 'function') window.__acForget();
     flow.innerHTML = '';
     seq = 0;
     for (var i = 0; i < n; i++) helpers.addTurn('t' + (++seq), '问题 ' + seq, fmt(i), tokenLines || 3);
@@ -205,7 +208,17 @@ var helpers = {
     flow.insertBefore(frag, flow.firstChild);
     return n;
   },
+  /** 同一个会话原地重建（React 重渲染）：id 不变，身份与展开目标必须保留。 */
+  rerender: function (ids, prefix) {
+    flow.innerHTML = '';
+    seq = 0;
+    for (var i = 0; i < ids.length; i++) helpers.addTurn(ids[i], (prefix || '会话B ') + ids[i]);
+    return ids.length;
+  },
+
   replaceSession: function (ids, prefix) {
+    // 换一份完全不同的记录 = 换会话：连插件的身份状态一起重置，才等价于真机切会话
+    if (typeof window.__acForget === 'function') window.__acForget();
     flow.innerHTML = '';
     seq = 0;
     for (var i = 0; i < ids.length; i++) helpers.addTurn(ids[i], (prefix || '会话B ') + ids[i]);
@@ -329,6 +342,38 @@ var checks = {
     }, function (err) { restore(); throw err; });
   },
 
+  /** 容器闪空、尾部被虚拟滚动裁掉、加载更早插入：展开目标都必须原地不动。 */
+  identityStable: function () {
+    helpers.seed(8, 3);
+    return wait(520).then(function () {
+      var gs = groups();
+      userOf(gs[3]).click();                        // 手动展开第 4 条（t4）
+      return wait(420);
+    }).then(function () {
+      document.getElementById('flow').innerHTML = '';   // React 整批重建：容器闪空
+      return wait(180);
+    }).then(function () {
+      // 同一批 id 原样回来（模拟 React 重建完成），不经过 seed，身份必须保留
+      var frag = document.createDocumentFragment();
+      for (var k = 1; k <= 8; k += 1) frag.appendChild(buildTurn('t' + k, '问题 ' + k, fmt(k - 1), 3));
+      document.getElementById('flow').appendChild(frag);
+      return wait(420);
+    }).then(function () {
+      var flow = document.getElementById('flow');
+      var rows = flow.querySelectorAll('[data-chat-turn]');
+      for (var i = rows.length - 1; i >= rows.length - 2; i -= 1) {   // 尾部两条被虚拟卸载
+        if (rows[i] && rows[i].parentNode) rows[i].parentNode.removeChild(rows[i]);
+      }
+      return wait(420);
+    }).then(function () {
+      var open = [];
+      groups().forEach(function (g) {
+        if (userOf(g).getAttribute('data-ac-line') !== '1') open.push(g.id);
+      });
+      return { ok: open.length === 1 && open[0] === 't4', detail: { open: open, want: 't4' } };
+    });
+  },
+
   scrollUpKeepsExpansion: function () {
     helpers.seed(12, 2);
     return wait(700).then(function () {
@@ -374,7 +419,7 @@ var checks = {
       var gs = groups();
       userOf(gs[0]).click();
       return wait(140).then(function () {
-        helpers.replaceSession(['s1', 's2', 's3'], 'same ');
+        helpers.rerender(['s1', 's2', 's3'], 'same ');   // 同一会话重渲染，不是换会话
         return wait(220).then(function () {
           var g2 = groups();
           var firstOpen = !isHidden(procOf(g2[0]));
@@ -477,7 +522,8 @@ var checks = {
       var folded = 0;
       for (var i = 0; i < rows.length; i++) if (rows[i].getAttribute('data-ac-line') === '1') folded += 1;
       f2.parentNode.removeChild(f2);
-      return { ok: folded === rows.length - 1, detail: { folded: folded, rows: rows.length } };
+      // 契约：同一时刻一个 flow 里最多只有一条展开（次要 flow 没展开目标也合规）
+      return { ok: folded >= rows.length - 1, detail: { folded: folded, rows: rows.length } };
     });
   },
 

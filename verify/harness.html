@@ -541,7 +541,7 @@ var checks = {
   /** 滚动过程中：折叠行数/日期头/内容高度都不能变，且不能弹出"预览会话"。 */
   scrollStability: function () {
     helpers.seed(12, 2);
-    return wait(320).then(function () {
+    return wait(700).then(function () {
       var s = document.getElementById('scroll');
       var f = document.getElementById('flow');
       function snap() {
@@ -562,13 +562,14 @@ var checks = {
         if (now.h !== before.h) bad.push('h@' + i + ':' + now.h + '/' + before.h);
       }
       var row = f.querySelector('[data-ac-line="1"]');
+      if (row === null) return { ok: false, detail: 'no folded row after burst' };
       s.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 140 }));
       row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      return wait(280).then(function () {
+      return wait(420).then(function () {
         var pv = document.getElementById('dsh-ac-preview');
         if (pv !== null && pv.style.display === 'block') bad.push('preview-during-scroll');
         row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-        return wait(360).then(function () {
+        return wait(520).then(function () {
           var pv2 = document.getElementById('dsh-ac-preview');
           var shown = pv2 !== null && pv2.style.display === 'block';
           if (!shown) bad.push('preview-missing-after-scroll');

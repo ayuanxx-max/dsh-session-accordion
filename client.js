@@ -1505,7 +1505,12 @@ window.__ModuleLoader__.load({
 
     function applyInner(force) {
       if (force !== true && Date.now() < scrollQuietUntil) {
-        // 滚动中：推迟到停下之后，避免日期头/折叠切换把视口顶得上下跳
+        // 滚动中：推迟“会改布局”的部分（日期头/折叠切换会把视口顶得上下跳），
+        // 但钉住图标是绝对定位的覆盖层，跟着滚一下不影响任何行的位置，这里照常刷新，
+        // 否则图标会在滚动途中“掉队”，滚完才归位。
+        try {
+          if (lastPinFlow !== null && lastPinFlow.isConnected) syncPins(lastPinFlow, lastPinRows);
+        } catch (err) { /* 覆盖层刷新失败不影响主流程 */ }
         const wait = Math.min(400, scrollQuietUntil - Date.now() + 40);
         window.setTimeout(schedule, wait);
         return 0;

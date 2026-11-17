@@ -33,6 +33,7 @@
 
 - `__dshAccordion`
 - `__acReport`
+- `__acDebug`
 - `__acWithdrawGuard`
 
 **日志前缀**（抓 warn/info 时按这些过滤）
@@ -63,6 +64,7 @@
 | 场景 | 文件 | 步骤 | 断言 | 帧预算 |
 | --- | --- | --- | --- | --- |
 | `accordion-basic` | `verify/scenarios/basic.json` | 1 | no-harness-errors, guard-installed, line-contract, only-newest-expanded, click-toggle, new-turn-folds-previous, report-api | - |
+| `accordion-regression` | `verify/scenarios/regression.json` | 0 | same-length-summary, session-switch-colliding-ids, stamp-from-native-clock, keyboard-toggle, fmt-old-ms | - |
 | `scroll-jank` | `verify/scenarios/scroll-jank.json` | 3 | only-newest-expanded, line-contract | {"maxWorstFrameMs": 250, "maxLongTaskWorstMs": 250} |
 | `stream-storm` | `verify/scenarios/stream-storm.json` | 3 | line-contract, only-newest-expanded, no-harness-errors | {"maxWorstFrameMs": 250, "maxLongTaskWorstMs": 250} |
 

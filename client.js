@@ -37,8 +37,8 @@ window.__ModuleLoader__.load({
     let expandedId = null;
     /** 上一帧看到的 turnId 序列，用来判定「追加 / 消失 / 新会话」。 */
     let seenIds = [];
-    /** 上一帧的聊天流容器，容器换人 = 换了会话视图。 */
-    let flowRef = null;
+    /** 上一帧的行节点；整批失联 = 会话被整体替换（turnId 可能重号）。 */
+    let seenNodes = [];
 
     const textCache = new WeakMap();
     let pending = false;
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
       if (value === undefined || value === null) return '';
       let ms;
       if (value instanceof Date) ms = value.getTime();
-      else if (typeof value === 'number') ms = value < 1e12 ? value * 1000 : value;
+      else if (typeof value === 'number') ms = value < 1e11 ? value * 1000 : value;
       else ms = new Date(String(value)).getTime();
       if (!isFinite(ms)) return '';
       const d = new Date(ms);
@@ -232,16 +232,23 @@ window.__ModuleLoader__.load({
       return '';
     }
 
+    /** 原生时间文本归一化：完整日期压成 MM-DD HH:mm；只有时分就只显示时分（不编造日期）。 */
+    function normalizeClock(text) {
+      const value = String(text || '').trim();
+      const full = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2})[:：](\d{2})/.exec(value);
+      if (full !== null) {
+        return pad2(Number(full[2])) + '-' + pad2(Number(full[3])) + ' ' +
+          pad2(Number(full[4])) + ':' + full[5];
+      }
+      const hm = /^(\d{1,2})[:：](\d{2})/.exec(value);
+      if (hm !== null) return pad2(Number(hm[1])) + ':' + hm[2];
+      return value.length > 24 ? value.slice(0, 24) + '…' : value;
+    }
+
     function stampOf(user, bubble) {
       const stamp = fmtTime(fiberTime(bubble !== null ? bubble : user));
       if (stamp) return stamp;
-      const native = clockText(user);
-      if (!native) return '';
-      if (/^\d{1,2}[:：]\d{2}/.test(native)) {
-        const now = new Date();
-        return pad2(now.getMonth() + 1) + '-' + pad2(now.getDate()) + ' ' + native;
-      }
-      return native;
+      return normalizeClock(clockText(user));
     }
 
     function summaryOf(bubble, fallback) {
@@ -249,7 +256,7 @@ window.__ModuleLoader__.load({
       if (source === null) return '';
       const raw = source.textContent || '';
       const cached = textCache.get(source);
-      if (cached !== undefined && cached.len === raw.length) return cached.text;
+      if (cached !== undefined && cached.raw === raw) return cached.text;
       let node = null;
       try {
         node = source.cloneNode(true);
@@ -266,8 +273,12 @@ window.__ModuleLoader__.load({
       }
       text = text.replace(/\s+/g, ' ').trim();
       if (text.length > 180) text = text.slice(0, 180) + '…';
-      textCache.set(source, { len: raw.length, text });
+      textCache.set(source, { raw, text });
       return text;
+    }
+
+    function setAttr(el, name, value) {
+      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
     }
 
     function markFresh(el) {
@@ -283,7 +294,7 @@ window.__ModuleLoader__.load({
     function resetState() {
       expandedId = null;
       seenIds = [];
-      flowRef = null;
+      seenNodes = [];
     }
 
     /** 任意一行有盒子就算视图可见：只看第一行会被我们自己折叠掉的节点误判。 */
@@ -316,6 +327,17 @@ window.__ModuleLoader__.load({
       if (ids.length === 0) return ids;
       const last = ids[ids.length - 1];
       const prev = seenIds;
+      const prevNodes = seenNodes;
+      let replaced = false;
+      if (prevNodes.length > 0) {
+        replaced = true;
+        for (let i = 0; i < prevNodes.length; i += 1) {
+          if (flow !== null && flow.contains(prevNodes[i])) {
+            replaced = false;
+            break;
+          }
+        }
+      }
       if (prev.length === 0) {
         expandedId = last;
       } else {
@@ -326,7 +348,7 @@ window.__ModuleLoader__.load({
             break;
           }
         }
-        if (!overlap) {
+        if (replaced || !overlap) {
           expandedId = last;
         } else if (isAppend(prev, ids)) {
           expandedId = last;
@@ -334,8 +356,11 @@ window.__ModuleLoader__.load({
           expandedId = last;
         }
       }
-      flowRef = flow;
       seenIds = ids;
+      seenNodes = [];
+      for (let i = 0; i < list.length; i += 1) {
+        for (let j = 0; j < list[i].items.length; j += 1) seenNodes.push(list[i].items[j]);
+      }
       return ids;
     }
 
@@ -372,20 +397,23 @@ window.__ModuleLoader__.load({
         const parts = pick(group);
         const user = parts.user;
         if (user !== null) {
-          user.setAttribute(USER_ATTR, '1');
+          setAttr(user, USER_ATTR, '1');
           user.removeAttribute(HIDE_ATTR);
+          setAttr(user, 'role', 'button');
+          setAttr(user, 'tabindex', '0');
+          setAttr(user, 'aria-expanded', expanded ? 'true' : 'false');
           if (expanded) {
             user.removeAttribute(LINE_ATTR);
             user.removeAttribute(TEXT_ATTR);
             user.removeAttribute(TIME_ATTR);
           } else {
             const bubble = user.querySelector('[class*="_bubble"]');
-            user.setAttribute(LINE_ATTR, '1');
+            setAttr(user, LINE_ATTR, '1');
             const stamp = stampOf(user, bubble);
-            if (stamp) user.setAttribute(TIME_ATTR, stamp);
+            if (stamp) setAttr(user, TIME_ATTR, stamp);
             else user.removeAttribute(TIME_ATTR);
             const body = summaryOf(bubble, user);
-            user.setAttribute(TEXT_ATTR, body || '（无正文）');
+            setAttr(user, TEXT_ATTR, body || '（无正文）');
           }
         }
         for (let j = 0; j < parts.rest.length; j++) {
@@ -396,7 +424,7 @@ window.__ModuleLoader__.load({
               markFresh(el);
             }
           } else {
-            el.setAttribute(HIDE_ATTR, '1');
+            setAttr(el, HIDE_ATTR, '1');
           }
         }
       }
@@ -425,6 +453,18 @@ window.__ModuleLoader__.load({
       const selection = window.getSelection();
       if (selection !== null && String(selection).length > 0) return;
       toggle(user);
+    }
+
+    function onKeyDown(event) {
+      const key = event.key;
+      if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('a,button') !== null) return;
+      const row = target.closest('[' + USER_ATTR + '="1"]');
+      if (row === null) return;
+      event.preventDefault();
+      toggle(row);
     }
 
     function schedule() {
@@ -465,6 +505,7 @@ window.__ModuleLoader__.load({
       started = true;
       ensureStyle();
       document.addEventListener('click', onClick, true);
+      document.addEventListener('keydown', onKeyDown, true);
       try {
         new MutationObserver(schedule).observe(document.documentElement, {
           childList: true,
@@ -476,6 +517,7 @@ window.__ModuleLoader__.load({
       setInterval(schedule, 1500);
       setTimeout(schedule, 300);
       window.__acReport = report;
+      window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock };
       console.info('[auto-collapse] ready — window.__acReport() 查看结构诊断');
     }
 

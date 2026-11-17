@@ -190,6 +190,19 @@ var helpers = {
     var s = document.getElementById('scroll');
     s.scrollTop = Math.min(s.scrollHeight, s.scrollTop + dy);
     return s.scrollTop;
+  },
+  bareTurn: function (id, timeText) {
+    var el = document.createElement('div');
+    el.setAttribute('data-chat-turn', id);
+    el.innerHTML = '<div class="_bubble_h">问题 ' + id + '</div><span class="_timeStart_h">' + timeText + '</span>';
+    flow.appendChild(el);
+    return el;
+  },
+  replaceSession: function (ids, prefix) {
+    flow.innerHTML = '';
+    seq = 0;
+    for (var i = 0; i < ids.length; i++) helpers.addTurn(ids[i], (prefix || '会话B ') + ids[i]);
+    return ids.length;
   }
 };
 
@@ -273,6 +286,70 @@ var checks = {
       });
     });
   },
+
+  sameLengthSummary: function () {
+    var g = groups()[0], u = userOf(g), b = u.querySelector('[class*="_bubble"]');
+    b.textContent = 'abc';
+    return wait(150).then(function () {
+      b.textContent = 'xyz';
+      return wait(150);
+    }).then(function () {
+      return { ok: u.getAttribute('data-ac-text') === 'xyz', detail: { text: u.getAttribute('data-ac-text') } };
+    });
+  },
+  sessionSwitchCollidingIds: function () {
+    helpers.replaceSession(['1', '2', '3', '4', '5'], '会话A ');
+    return wait(180).then(function () {
+      var gs = groups();
+      userOf(gs[1]).click();
+      return wait(120);
+    }).then(function () {
+      helpers.replaceSession(['1', '2', '3'], '会话B ');
+      return wait(200);
+    }).then(function () {
+      var open = groups().filter(function (g) {
+        var p = procOf(g);
+        return p && !isHidden(p);
+      }).map(function (g) { return g.id; });
+      return { ok: open.length === 1 && open[0] === '3', detail: { open: open } };
+    });
+  },
+  stampFromNativeClock: function () {
+    helpers.replaceSession(['a1'], 'x ');
+    helpers.bareTurn('a2', '2026-11-04 10:00');
+    helpers.bareTurn('a3', '09:41');
+    helpers.addTurn('a4', '压轴', '2026-11-04 11:00');
+    return wait(220).then(function () {
+      var gs = groups(), full = null, bare = null;
+      for (var i = 0; i < gs.length; i++) {
+        var u = userOf(gs[i]);
+        if (gs[i].id === 'a2') full = u.getAttribute('data-ac-time');
+        if (gs[i].id === 'a3') bare = u.getAttribute('data-ac-time');
+      }
+      return { ok: full === '11-04 10:00' && bare === '09:41', detail: { full: full, bare: bare } };
+    });
+  },
+  keyboardToggle: function () {
+    helpers.replaceSession(['k1', 'k2'], 'k ');
+    return wait(200).then(function () {
+      var gs = groups(), row = userOf(gs[0]);
+      var role = row.getAttribute('role'), tab = row.getAttribute('tabindex');
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      return wait(120).then(function () {
+        var open = !isHidden(procOf(gs[0]));
+        return { ok: role === 'button' && tab === '0' && open, detail: { role: role, tab: tab, open: open } };
+      });
+    });
+  },
+  fmtOldMilliseconds: function () {
+    var dbg = window.__acDebug;
+    if (!dbg || typeof dbg.fmtTime !== 'function') return { ok: false, detail: 'no __acDebug.fmtTime' };
+    var d = new Date(946684800000);
+    var p2 = function (n) { return n < 10 ? '0' + n : '' + n; };
+    var want = p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+    var got = dbg.fmtTime(946684800000);
+    return { ok: got === want, detail: { got: got, want: want } };
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&
@@ -290,6 +367,8 @@ var checks = {
              detail: { errors: window.__acErrors || [], loaded: window.__ModuleLoader__.loaded } };
   }
 };
+
+function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 window.__h = helpers;
 window.__check = checks;

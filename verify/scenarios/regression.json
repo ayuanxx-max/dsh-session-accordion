@@ -1,0 +1,25 @@
+{
+  "name": "accordion-regression",
+  "checks": [
+    {
+      "name": "same-length-summary",
+      "js": "window.__check.sameLengthSummary()"
+    },
+    {
+      "name": "session-switch-colliding-ids",
+      "js": "window.__check.sessionSwitchCollidingIds()"
+    },
+    {
+      "name": "stamp-from-native-clock",
+      "js": "window.__check.stampFromNativeClock()"
+    },
+    {
+      "name": "keyboard-toggle",
+      "js": "window.__check.keyboardToggle()"
+    },
+    {
+      "name": "fmt-old-ms",
+      "js": "window.__check.fmtOldMilliseconds()"
+    }
+  ]
+}

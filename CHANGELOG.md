@@ -2,6 +2,16 @@
 
 All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
 
+## Unreleased — 代码复核（2026-11-03 之后）
+
+- 折叠行摘要缓存改为按原文比对：同一轮文本等长替换（流式/编辑）不再残留旧摘要。
+- 会话切换改为「行节点整批失联」判定：turnId 重号的两个会话不再互相沿用展开态。
+- 原生时间文本归一化：完整日期压成 `MM-DD HH:mm`，只有时分就只显示时分，不再用今天日期冒充旧轮日期。
+- `fmtTime` 秒/毫秒判据从 `1e12` 放宽到 `1e11`：2001 年前的毫秒时间戳不再被当作秒。
+- 折叠行补 `role=button` / `tabindex=0` / `aria-expanded`，支持 Enter/Space 展开（键盘可达）。
+- 属性写入去重（同值不重复 setAttribute），降低每帧样式失效范围。
+- 新增回归场景 `verify/scenarios/regression.json`（5 条断言），四场景全绿、`worstFrameMs 16.8`。
+
 ## 2.5.9 — 2026-11-04
 
 - 修复「加载更早」失效：长 / 压缩会话点到第 3–4 页后，会话视图重建抛 `conversation Definition "system-message" withdrew materialized target "chat"`；该异常被订阅通知层吞掉，快照不再发布 → 画面停在旧内容，按钮看起来点不动。

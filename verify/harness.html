@@ -441,7 +441,7 @@ var checks = {
     var gs = groups();
     var row = userOf(gs[0]);
     row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    return wait(120).then(function () {
+    return wait(260).then(function () {
       var el = document.getElementById('dsh-ac-preview');
       var shown = el !== null && el.style.display === 'block';
       var text = el === null ? '' : el.textContent;
@@ -517,6 +517,48 @@ var checks = {
         inside: br.left - bubble.getBoundingClientRect().left,
         detail: { gotX: gotX, wantX: wantX, gotY: gotY, textY: ty, textX: tx, ch: ch, w: br.width, h: br.height, layer: btn.parentNode.tagName }
       };
+    });
+  },
+  /** 滚动过程中：折叠行数/日期头/内容高度都不能变，且不能弹出"预览会话"。 */
+  scrollStability: function () {
+    helpers.seed(12, 2);
+    return wait(320).then(function () {
+      var s = document.getElementById('scroll');
+      var f = document.getElementById('flow');
+      function snap() {
+        return {
+          lines: f.querySelectorAll('[data-ac-line="1"]').length,
+          days: f.querySelectorAll('[data-ac-day]').length,
+          h: f.scrollHeight
+        };
+      }
+      var before = snap();
+      var bad = [];
+      for (var i = 0; i < 8; i += 1) {
+        s.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 140 }));
+        s.scrollTop = Math.max(0, s.scrollTop - 45);
+        var now = snap();
+        if (now.lines !== before.lines) bad.push('lines@' + i + ':' + now.lines + '/' + before.lines);
+        if (now.days !== before.days) bad.push('days@' + i + ':' + now.days + '/' + before.days);
+        if (now.h !== before.h) bad.push('h@' + i + ':' + now.h + '/' + before.h);
+      }
+      var row = f.querySelector('[data-ac-line="1"]');
+      s.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 140 }));
+      row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      return wait(280).then(function () {
+        var pv = document.getElementById('dsh-ac-preview');
+        if (pv !== null && pv.style.display === 'block') bad.push('preview-during-scroll');
+        row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        return wait(360).then(function () {
+          var pv2 = document.getElementById('dsh-ac-preview');
+          var shown = pv2 !== null && pv2.style.display === 'block';
+          if (!shown) bad.push('preview-missing-after-scroll');
+          var after = snap();
+          if (after.h !== before.h) bad.push('h-final:' + after.h + '/' + before.h);
+          if (after.lines !== before.lines) bad.push('lines-final:' + after.lines + '/' + before.lines);
+          return { ok: bad.length === 0, detail: { bad: bad.slice(0, 8), preview: shown, h: before.h, lines: before.lines } };
+        });
+      });
     });
   },
   pinContainment: function () {

@@ -569,7 +569,7 @@ window.__ModuleLoader__.load({
       const id = matches[matchIdx % matches.length];
       matchIdx = (matchIdx + 1) % matches.length;
       expandedId = id;
-      apply();
+      apply(true);
       const row = document.querySelector('[data-chat-turn="' + id + '"]');
       if (row !== null && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' });
     }
@@ -661,7 +661,7 @@ window.__ModuleLoader__.load({
         else rendered[i].removeAttribute(PIN_ATTR);
       }
       saveMem();
-      apply();
+      apply(true);
     }
 
     let pinLayerEl = null;
@@ -846,6 +846,7 @@ window.__ModuleLoader__.load({
         }
       }
       const host = pinHostNode;
+      watchScroll(host);
       const layer = pinLayer(host);
       const isBody = host === document.body;
       const scrollTop = isBody ? (window.pageYOffset || 0) : (host.scrollTop || 0);
@@ -859,14 +860,20 @@ window.__ModuleLoader__.load({
       }
       // 📌 落在气泡内部：给用户气泡补左侧内缩（位置公式不变，只是腾出空间）
       let padCh = 0;
+      let padFallback = 0;
       for (let i = rendered.length - 1; i >= 0; i -= 1) {
-        if (rendered[i].user.getAttribute(LINE_ATTR) === '1') continue;
         const probe = rendered[i].user.querySelector('[class*="_bubble"]');
-        if (probe !== null) {
-          padCh = chWidthOf(fontOf(window.getComputedStyle(probe)));
-          break;
+        if (probe === null) continue;
+        const w = chWidthOf(fontOf(window.getComputedStyle(probe)));
+        if (w <= 0) continue;
+        if (rendered[i].user.getAttribute(LINE_ATTR) === '1') {
+          if (padFallback === 0) padFallback = w;
+          continue;
         }
+        padCh = w;
+        break;
       }
+      if (padCh === 0) padCh = padFallback;
       if (CFG.pin === true && padCh > 0) {
         const pad = Math.round(PIN_HALF * 2 + padCh * 2 + 4) + 'px';
         if (flow.getAttribute(PINBOX_ATTR) !== '1') flow.setAttribute(PINBOX_ATTR, '1');
@@ -994,7 +1001,11 @@ window.__ModuleLoader__.load({
         }
         used.push(node);
         if (node.textContent !== want.label) node.textContent = want.label;
-        if (node.nextSibling !== want.before) flow.insertBefore(node, want.before);
+        // 行可能在 React 重渲染的瞬间被摘掉：这时 insertBefore 会抛 NotFoundError，
+        // 整个 apply 会中断（半边折叠、标题丢失 => 视口跳动）。
+        if (want.before.parentNode === flow && node.nextSibling !== want.before) {
+          flow.insertBefore(node, want.before);
+        }
         let visible = 0;
         for (let sib = node.nextSibling; sib !== null; sib = sib.nextSibling) {
           if (sib.nodeType === 1 && sib.hasAttribute(DAY_ATTR)) break;
@@ -1005,9 +1016,13 @@ window.__ModuleLoader__.load({
         node.style.display = visible === 0 ? 'none' : '';
       }
       for (let i = 0; i < existing.length; i += 1) {
-        if (used.indexOf(existing[i]) < 0 && existing[i].parentNode !== null) {
-          existing[i].parentNode.removeChild(existing[i]);
-        }
+        const node = existing[i];
+        if (used.indexOf(node) >= 0 || node.parentNode === null) continue;
+        // 只在"它后面已经没有行"时才删：rendered 暂时不完整时不删，否则每轮删了又插 = 上下跳
+        let next = node.nextSibling;
+        while (next !== null && next.nodeType !== 1) next = next.nextSibling;
+        const dangling = next === null || next.hasAttribute(DAY_ATTR) || next.parentNode !== flow;
+        if (dangling) node.parentNode.removeChild(node);
       }
     }
 
@@ -1054,8 +1069,16 @@ window.__ModuleLoader__.load({
       if (row === null) return;
       const to = event.relatedTarget;
       if (to instanceof Element && row.contains(to)) return;
+      previewPending = null;
+      if (previewTimer !== 0) {
+        window.clearTimeout(previewTimer);
+        previewTimer = 0;
+      }
       hidePreview();
     }
+
+    let previewTimer = 0;
+    let previewPending = null;
 
     function onOver(event) {
       const target = event.target;
@@ -1065,9 +1088,23 @@ window.__ModuleLoader__.load({
         hidePreview();
         return;
       }
+      // 滚动中（或刚停下）不弹预览：滚轮让行从指针下滑过也会触发 mouseover，
+      // 那样会"打开一个鼠标指针停留的会话"——其实用户根本没想打开它。
+      if (Date.now() < scrollQuietUntil) {
+        hidePreview();
+        return;
+      }
       if (previewFor === row) return;
-      previewFor = row;
-      showPreview(row);
+      previewPending = row;
+      if (previewTimer !== 0) window.clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(function () {
+        previewTimer = 0;
+        if (previewPending !== row) return;
+        if (!row.isConnected || Date.now() < scrollQuietUntil) return;
+        if (previewFor === row) return;
+        previewFor = row;
+        showPreview(row);
+      }, 160);
     }
 
     function markFresh(el) {
@@ -1079,6 +1116,31 @@ window.__ModuleLoader__.load({
     }
 
     let hiddenSince = 0;
+
+    /**
+     * 滚动静默期：滚轮/滚动进行中，任何"改内容高度"的操作（日期头插入/移除、折叠切换）
+     * 都会让滚动的可视区跟着跳。滚动时只推迟 apply，等停下 160ms 再算一次。
+     */
+    let scrollQuietUntil = 0;
+    let scrollWatched = null;
+    let scrollWatchedHost = null;
+
+    function noteScroll() {
+      scrollQuietUntil = Date.now() + 160;
+      if (typeof hidePreview === 'function') hidePreview();
+    }
+
+    function watchScroll(host) {
+      if (scrollWatched === null) {
+        scrollWatched = true;
+        window.addEventListener('scroll', noteScroll, { passive: true, capture: true });
+        window.addEventListener('wheel', noteScroll, { passive: true, capture: true });
+      }
+      if (host !== null && host !== document.body && scrollWatchedHost !== host) {
+        scrollWatchedHost = host;
+        host.addEventListener('scroll', noteScroll, { passive: true });
+      }
+    }
 
     function resetState() {
       expandedId = null;
@@ -1153,7 +1215,13 @@ window.__ModuleLoader__.load({
       return ids;
     }
 
-    function apply() {
+    function apply(force) {
+      if (force !== true && Date.now() < scrollQuietUntil) {
+        // 滚动中：推迟到停下之后，避免日期头/折叠切换把视口顶得上下跳
+        const wait = Math.min(400, scrollQuietUntil - Date.now() + 40);
+        window.setTimeout(schedule, wait);
+        return 0;
+      }
       ensureStyle();
       const flow = findFlow();
       if (flow === null) {
@@ -1285,7 +1353,7 @@ window.__ModuleLoader__.load({
       if (!id) return;
       if (isPinned(id)) return;
       expandedId = expandedId === id ? null : id;
-      apply();
+      apply(true);
       announce((expandedId === id ? t('expand') : t('collapse')) + ' · ' + id);
     }
 
@@ -1345,7 +1413,7 @@ window.__ModuleLoader__.load({
       if (!typing && key === 'Escape') {
         event.preventDefault();
         expandedId = null;
-        apply();
+        apply(true);
         announce(t('collapse'));
         return;
       }
@@ -1458,7 +1526,7 @@ window.__ModuleLoader__.load({
           ensureStyle();
           applyTheme();
           try {
-            apply();
+            apply(true);
           } catch (err) {
             schedule();
           }

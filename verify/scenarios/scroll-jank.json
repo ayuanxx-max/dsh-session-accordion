@@ -30,6 +30,10 @@
     {
       "name": "pin-scroll-geometry",
       "js": "window.__check.pinScrollGeometry()"
+    },
+    {
+      "name": "scroll-stability",
+      "js": "window.__check.scrollStability()"
     }
   ]
 }

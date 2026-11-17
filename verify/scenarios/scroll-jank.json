@@ -20,6 +20,10 @@
   ],
   "checks": [
     {
+      "name": "no-scroll-writes",
+      "js": "window.__check.noScrollWrites()"
+    },
+    {
       "name": "only-newest-expanded",
       "js": "window.__check.onlyNewestExpanded()"
     },

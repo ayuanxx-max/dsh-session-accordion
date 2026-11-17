@@ -1477,28 +1477,7 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    /** 视口里第一条“这次不会被改动”的轮次：拿它的屏幕位置当锚点。 */
-    function pickAnchorRow(list, skipIds) {
-      const host = scrollWatchedHost;
-      let top = 0;
-      if (host !== null && host.isConnected) top = host.getBoundingClientRect().top;
-      for (let i = 0; i < list.length; i += 1) {
-        if (skipIds.indexOf(list[i].id) !== -1) continue;
-        let user = null;
-        try {
-          user = pick(list[i]).user;
-        } catch (err) {
-          user = null;
-        }
-        if (user === null) continue;
-        const turn = user.closest('[data-chat-turn]');
-        if (turn === null) continue;
-        if (turn.getBoundingClientRect().bottom > top + 1) return turn;
-      }
-      return null;
-    }
-
-    /** 会影响布局的那几件事（日期头、分叉徽标）只在“语义签名”变化时才做。 */
+    /** 会影响布局的那几件事（日期头）只在“语义签名”变化时才做。 */
     function layoutSignature(rendered, pinnedIds) {
       let sig = String(expandedId) + ':' + rendered.length;
       let day = null;
@@ -1587,10 +1566,13 @@ window.__ModuleLoader__.load({
         DBG.counters.keepDuringScroll += 1;
       }
       const hWhole0 = flow.scrollHeight;
-      const anchorRow = pickAnchorRow(list, [beforeExpanded, expandedId]);
-      const anchorTop = anchorRow === null ? null : anchorRow.getBoundingClientRect().top;
       const scroller = chatScrollerFor(flow) || scrollWatchedHost;
-      const st0 = scroller !== null && scroller.isConnected ? scroller.scrollTop : null;
+      // 应用可能自己把滚动锚定关掉；这里只把它恢复成 auto（不写 scrollTop）
+      try {
+        if (scroller !== null && scroller.isConnected && scroller.style.overflowAnchor === 'none') {
+          scroller.style.overflowAnchor = 'auto';
+        }
+      } catch (err) { /* 忽略 */ }
       stats.passes += 1;
       stats.rows += list.length;
       const rendered = [];
@@ -1703,17 +1685,10 @@ window.__ModuleLoader__.load({
       lastPinRows = rendered;
       schedulePinFix();
       saveMem();
-      if (anchorRow !== null && anchorTop !== null && anchorRow.isConnected && st0 !== null &&
-          scroller !== null && scroller.isConnected) {
-        const beyond = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-        const delta = anchorRow.getBoundingClientRect().top - anchorTop;
-        // 贴底时不补偿（这时应当跟随最新内容），其它情况把锚点钉回原处
-        if (Math.abs(delta) > 1 && beyond > 40) {
-          scroller.scrollTop = st0 + delta;
-          DBG.counters.anchored += 1;
-          dbg('ANC ' + Math.round(delta) + ' h=' + scroller.scrollHeight);
-        }
-      }
+      // 这里以前会 `scroller.scrollTop = st0 + delta` 做“事后抵账”。那一句就是
+      // “页面不动但右侧滚动条在抖”的来源：插件每 pass 写一次 scrollTop，应用的滚动
+      // 监听再回写一次，两边对着写 → 滚动条来回抽。现在插件对滚动位置**只读**，
+      // 高度变化引起的视口位移交给浏览器原生滚动锚定（overflow-anchor:auto）。
       if (flow.scrollHeight !== hWhole0) {
         DBG.counters.hWhole += 1;
         dbg('HW ' + hWhole0 + '->' + flow.scrollHeight);

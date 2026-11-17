@@ -300,6 +300,35 @@ var checks = {
   },
 
   /** 往上滚（头部插入更早的轮次）不许改展开目标：不许收起用户展开的那条，也不许乱开别的。 */
+  /** 插件对 scrollTop 必须只读：折叠/新增轮次都不许自己写滚动位置。 */
+  noScrollWrites: function () {
+    var writes = [];
+    var desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (v) { writes.push(v); desc.set.call(this, v); }
+    });
+    var restore = function () { Object.defineProperty(Element.prototype, 'scrollTop', desc); };
+    helpers.seed(20, 6);
+    return wait(420).then(function () {
+      var gs = groups();
+      var s = document.getElementById('scroll');
+      s.scrollTop = Math.round((s.scrollHeight - s.clientHeight) / 2);   // 滚到中间
+      return wait(260).then(function () {
+        writes.length = 0;                                              // 之前的是测试自己写的
+        userOf(gs[2]).click();                                          // 视口上方那一行改高度
+        return wait(340);
+      }).then(function () {
+        helpers.addTurn('t-extra', '问题 额外', fmt(99));
+        return wait(340);
+      });
+    }).then(function () {
+      restore();
+      return { ok: writes.length === 0, detail: { writes: writes.slice(0, 6), n: writes.length } };
+    }, function (err) { restore(); throw err; });
+  },
+
   scrollUpKeepsExpansion: function () {
     helpers.seed(12, 2);
     return wait(700).then(function () {

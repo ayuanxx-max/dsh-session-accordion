@@ -1,5 +1,30 @@
 # Changelog · 更新记录
 
+## 3.0.0-live 修订 12（C 搜索：快捷键被应用占用，改成 Ctrl+Alt+F，2026-11-17）
+
+真机实测：按 `Ctrl+Shift+F` 弹出的是 **DSH 自带的查找/跳转面板**（顶部“找…/无匹配”加一排候选），
+插件的搜索条根本没出现 —— 也就是说特性 C 在真机上等于按不出来。
+
+- **快捷键不可靠**：`Ctrl+Shift+F` / `Ctrl+Alt+F` / `Ctrl+Shift+K` 在真机上先后都被应用自带的
+  查找面板接管（弹的是应用的条，而且它抢走焦点，打字进不到我们的输入框）。
+- 因此给搜索加**常驻入口**：右下角一个固定的 🔍 按钮（`#dsh-ac-find`，`position:fixed` 挂在
+  `document.body`，**不进入聊天流、不改任何行高**），点它开关搜索条；`Ctrl+Shift+K` 仍保留作快捷键。
+- 打开搜索时焦点补抓三次（立即 / 40ms / 160ms，`preventScroll`），防止被应用抢回输入框。
+- 其余逻辑不变：只过滤折叠行、`Enter` 跳到下一个命中并展开、`Esc` 关闭并还原。
+
+其余 A/B/E/F/G 本次逐条复核（见下表），未发现新问题。
+
+| 特性 | 覆盖断言 | 真机复核 |
+| --- | --- | --- |
+| A 时间线（日期吸头 + hover 预览） | `day-groups` / `hover-preview` | 日期头正常分段（10-29/10-30/11-03/今天） |
+| B 记忆 + 钉住 | `pin-toggle-keeps-open` / `memory-restore` / `pin-geometry*` / `pin-containment` / `pin-scroll-geometry` | 钉住/解除、📌 位置（隔一字符、行内居中）已在前几轮实测 |
+| C 搜索 | `search-filter` | 搜索条能弹出、焦点抓取已修；🔍 入口按钮的真机点击**尚未验成** |
+| E 分叉徽标 | `fork-chip` | 顶部 `↳ 分叉 · L1 · …` 正常显示 |
+| F 稳定性（增量渲染） | `incremental-skip` / `scroll-stability` / `no-scroll-writes` | 46 断言全绿 |
+| G 主题/无障碍/双语 | `a11y-i18n-theme` / `keyboard-j-esc` | 真机 `Esc` 全收（最新一条变折叠行）已验证 |
+
+回滚：`git revert <本修订提交>`。版本仍本地 `3.0.0`，未发布。
+
 ## 3.0.0-live 修订 11（真机采样定位：滚动条来回跳 = 高度一涨一缩，2026-11-17）
 
 真机 HUD 采样（`scrollHeight` / `scrollTop` 每帧记录方向变化）：
@@ -346,7 +371,8 @@ hover 预览气泡（时间 + 正文 + “点击展开”）✓、Ctrl+Shift+F �
 - 每个会话记住展开项与钉住项（`localStorage['dsh-ac-mem:<会话键>']`），切回来恢复；会话键 = 侧边栏标题 + 首轮文本哈希。
 
 ### C 搜索过滤
-- `Ctrl/Cmd+Shift+F` 打开搜索条，只过滤折叠行；`Enter` 跳到下一个命中并展开，`Esc` 还原。
+- `Ctrl/Cmd+Shift+K` 打开搜索条（备用 `Ctrl/Cmd+Alt+F`），只过滤折叠行；`Enter` 跳到下一个命中并展开，`Esc` 还原。
+  （`Ctrl+Shift+F` 与 `Ctrl+Alt+F` 都被 DSH 自带的查找面板占用，故以 `Ctrl+Shift+K` 为准。）
 
 ### E fork-tree 联动
 - 当前会话是分叉时，聊天流顶部显示 `↳ 分叉 · L<深度> · <标题>` 徽标；点击不干扰树形侧栏。

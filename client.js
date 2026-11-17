@@ -241,6 +241,14 @@ window.__ModuleLoader__.load({
         '.dsh-ac-search .dsh-ac-close{border:0;background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1;opacity:.6;padding:0 2px}',
         '.dsh-ac-search .dsh-ac-close:hover{opacity:1}',
         '[' + FILTER_ATTR + '="1"]{display:none!important}',
+
+        /* C：搜索入口按钮。fixed 挂在 body 上，不进入聊天流 → 不改变行高、不触发滚动抖动 */
+        '.dsh-ac-find{position:fixed;right:26px;bottom:136px;z-index:2147483000;',
+        '  width:28px;height:28px;padding:0;border-radius:999px;',
+        '  border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.14);',
+        '  color:var(--dsw-alias-label-secondary,#c9c9c9);font-size:13px;line-height:26px;',
+        '  text-align:center;cursor:pointer;opacity:.55;transition:opacity .12s ease}',
+        '.dsh-ac-find:hover,.dsh-ac-find[aria-pressed="true"]{opacity:1}',
         '[' + HIT_ATTR + '="1"]{box-shadow:inset 0 0 0 1px rgba(255,196,0,.55)}',
         '[data-ac-user="1"]{position:relative}',
         '.dsh-ac-pin{position:absolute;left:0;top:0;width:22px;height:22px;margin:0;padding:0;border:0;',
@@ -627,14 +635,54 @@ window.__ModuleLoader__.load({
       return box;
     }
 
+    function ensureFindButton() {
+      let btn = document.getElementById('dsh-ac-find');
+      if (CFG.search !== true) {
+        if (btn !== null) btn.remove();
+        return null;
+      }
+      if (btn === null) {
+        btn = document.createElement('button');
+        btn.id = 'dsh-ac-find';
+        btn.type = 'button';
+        btn.className = 'dsh-ac-find';
+        btn.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (searchOpen) closeSearch();
+          else openSearch();
+        });
+        document.body.appendChild(btn);
+      }
+      btn.textContent = '🔍';
+      btn.setAttribute('aria-label', t('searchLabel'));
+      btn.setAttribute('aria-pressed', searchOpen ? 'true' : 'false');
+      btn.title = t('search') + ' (Ctrl+Shift+K)';
+      return btn;
+    }
+
     function openSearch() {
       if (CFG.search !== true) return;
       const box = ensureSearch();
       box.style.display = 'flex';
       searchOpen = true;
+      ensureFindButton();
       const input = box.querySelector('.dsh-ac-q');
       input.placeholder = t('search');
-      if (document.activeElement !== input) input.focus();
+      // 真机：键盘打开后立刻 focus 会被应用抢回输入框，打字落不到搜索框里。
+      // 先立即 focus 一次，再在下一拍补一次（preventScroll 防止把列表滚走）。
+      const grab = function () {
+        if (searchOpen !== true) return;
+        try {
+          input.focus({ preventScroll: true });
+        } catch (err) {
+          try { input.focus(); } catch (err2) { /* 老内核 */ }
+        }
+        if (typeof input.select === 'function') input.select();
+      };
+      grab();
+      window.setTimeout(grab, 40);
+      window.setTimeout(grab, 160);
       schedule();
     }
 
@@ -642,6 +690,7 @@ window.__ModuleLoader__.load({
       const box = document.getElementById('dsh-ac-search');
       searchOpen = false;
       query = '';
+      ensureFindButton();
       if (box !== null) {
         box.style.display = 'none';
         box.querySelector('.dsh-ac-q').value = '';
@@ -1778,7 +1827,12 @@ window.__ModuleLoader__.load({
 
     function onKeyDown(event) {
       const key = event.key;
-      if (CFG.search === true && key !== undefined && (event.ctrlKey || event.metaKey) && event.shiftKey && String(key).toLowerCase() === 'f') {
+      const lower = key === undefined ? '' : String(key).toLowerCase();
+      const mod = event.ctrlKey || event.metaKey;
+      // 注意：Ctrl+Shift+F 是 DSH 自带的查找/跳转面板（真机实测按下去弹的是应用的条），
+      // 所以搜索改用 Ctrl+Alt+F；再留一个 Ctrl+Shift+K 备用（避开应用自带快捷键）。
+      const searchKey = mod && ((event.altKey && lower === 'f') || (event.shiftKey && lower === 'k'));
+      if (CFG.search === true && searchKey) {
         event.preventDefault();
         if (searchOpen) closeSearch();
         else openSearch();
@@ -1920,6 +1974,7 @@ window.__ModuleLoader__.load({
       disposed = false;
       ensureStyle();
       applyTheme();
+      ensureFindButton();
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown, true);
       document.addEventListener('mouseover', onOver, true);

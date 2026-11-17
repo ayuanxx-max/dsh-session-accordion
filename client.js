@@ -146,6 +146,11 @@ window.__ModuleLoader__.load({
         '  color:inherit;transition:opacity .12s ease,background-color .12s ease}',
         '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
         '[data-ac-pinned="1"] .dsh-ac-pin{opacity:1}',
+        '.dsh-ac-fork{display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px;padding:2px 9px;',
+        '  font-size:11px;border-radius:999px;width:max-content;cursor:pointer;',
+        '  color:var(--dsw-alias-label-secondary,#c9c9c9);background:rgba(127,127,127,.14);',
+        '  border:1px solid rgba(127,127,127,.22)}',
+        '.dsh-ac-fork:hover{background:rgba(127,127,127,.24)}',
         '.dsh-ac-day{position:sticky;top:0;z-index:3;margin:6px 0 2px;padding:2px 8px;',
         '  font-size:11px;font-weight:600;letter-spacing:.04em;border-radius:6px;width:max-content;',
         '  color:var(--dsw-alias-label-secondary,#c9c9c9);background:color-mix(in srgb,var(--dsw-alias-bg-base,#1e1e1e) 88%,transparent);',
@@ -373,6 +378,43 @@ window.__ModuleLoader__.load({
       if (el.getAttribute(name) === value) return;
       stats.writes += 1;
       el.setAttribute(name, value);
+    }
+
+    /* ---- E：fork-tree 联动（当前会话是分叉时，在流顶部显示分叉徽标） ---- */
+    function forkInfo() {
+      if (CFG.forkchip !== true) return null;
+      const rows = document.querySelectorAll('[data-ft-session]');
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        const active =
+          row.getAttribute('aria-current') === 'true' ||
+          row.getAttribute('data-active') === 'true' ||
+          row.querySelector('[aria-current="true"],[data-active="true"]') !== null;
+        if (!active) continue;
+        const depth = Number(row.getAttribute('data-ft-depth') || 0);
+        if (!(depth > 0)) return null;
+        return { depth: depth, title: (row.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40), row: row };
+      }
+      return null;
+    }
+
+    function applyForkChip(flow) {
+      let chip = flow.querySelector('.dsh-ac-fork');
+      const info = forkInfo();
+      if (info === null) {
+        if (chip !== null) chip.parentNode.removeChild(chip);
+        return;
+      }
+      if (chip === null) {
+        chip = document.createElement('div');
+        chip.className = 'dsh-ac-fork';
+        chip.setAttribute('role', 'note');
+        flow.insertBefore(chip, flow.firstChild);
+      }
+      const text = '↳ ' + t('fork') + ' · L' + info.depth + (info.title ? ' · ' + info.title : '');
+      if (chip.textContent !== text) chip.textContent = text;
+      chip.setAttribute('title', t('fork') + ' · L' + info.depth + ' · ' + info.title);
+      if (flow.firstChild !== chip) flow.insertBefore(chip, flow.firstChild);
     }
 
     /* ---- C：搜索过滤 ------------------------------------------------------ */
@@ -884,6 +926,7 @@ window.__ModuleLoader__.load({
         countEl.textContent = query === '' ? '' : (matches.length === 0 ? t('noMatch') : (Math.min(matchIdx, matches.length - 1) + 1) + '/' + matches.length);
       }
       applyDays(flow, rendered);
+      applyForkChip(flow);
       saveMem();
       return list.length;
     }

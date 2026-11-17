@@ -532,6 +532,24 @@ var checks = {
       });
     });
   },
+
+  forkChip: function () {
+    var side = document.createElement('div');
+    side.id = 'fake-sidebar';
+    side.innerHTML = '<div data-ft-session="s1" data-ft-depth="0" aria-current="false">根会话</div>' +
+      '<div data-ft-session="s2" data-ft-depth="2" aria-current="true"><span>分叉会话</span></div>';
+    document.body.appendChild(side);
+    helpers.replaceSession(['f1', 'f2'], 'f ');
+    return wait(360).then(function () {
+      var chip = document.querySelector('.dsh-ac-fork');
+      var text = chip === null ? '' : chip.textContent;
+      side.parentNode.removeChild(side);
+      return wait(280).then(function () {
+        var gone = document.querySelector('.dsh-ac-fork') === null;
+        return { ok: chip !== null && /L2/.test(text) && gone, detail: { text: text, gone: gone } };
+      });
+    });
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&

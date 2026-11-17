@@ -1,0 +1,13 @@
+{
+  "name": "accordion-e",
+  "checks": [
+    {
+      "name": "fork-chip",
+      "js": "window.__check.forkChip()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    }
+  ]
+}

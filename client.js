@@ -132,7 +132,7 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:not([' + TIME_ATTR + '])::before{content:none}',
 
         '[' + LINE_ATTR + '="1"]::after{content:attr(' + TEXT_ATTR + ');position:absolute;',
-        '  left:104px;right:28px;top:50%;transform:translateY(-50%);',
+        '  left:104px;right:56px;top:50%;transform:translateY(-50%);',
         '  font-size:.92em;line-height:1.5em;white-space:nowrap;overflow:hidden;',
         '  text-overflow:ellipsis;color:var(--dsw-alias-label-secondary,#c9c9c9)}',
         '[' + LINE_ATTR + '="1"]:not([' + TIME_ATTR + '])::after{left:12px}',
@@ -141,7 +141,7 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:hover::after{color:var(--dsw-alias-label-primary,#fff)}',
         '[' + LINE_ATTR + '="1"]:active{background-color:rgba(127,127,127,.18)}',
 
-        '.dsh-ac-search{position:fixed;right:18px;top:14px;z-index:9998;display:none;align-items:center;gap:6px;',
+        '.dsh-ac-search{position:fixed;right:18px;top:44px;z-index:9998;display:none;align-items:center;gap:6px;',
         '  padding:5px 8px;border-radius:10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.28);',
         '  background:var(--dsw-alias-bg-elevated,#2a2a2a);border:1px solid rgba(127,127,127,.3);',
         '  color:var(--dsw-alias-label-primary,#fff)}',
@@ -154,10 +154,13 @@ window.__ModuleLoader__.load({
         '[data-ac-user="1"]{position:relative}',
         '.dsh-ac-pin{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:20px;height:20px;',
         '  display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;',
-        '  font-size:11px;line-height:1;cursor:pointer;opacity:.42;background:transparent;',
+        '  font-size:13px;line-height:1;cursor:pointer;opacity:.62;background:transparent;',
         '  color:inherit;transition:opacity .12s ease,background-color .12s ease}',
         '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
         '[data-ac-pinned="1"] .dsh-ac-pin{opacity:1}',
+        '.dsh-ac-pinlayer{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:9996}',
+        '.dsh-ac-pinlayer .dsh-ac-pin{position:absolute;right:auto;top:auto;margin:0;pointer-events:auto}',
+        '.dsh-ac-pin[data-ac-on="1"]{opacity:1}',
         '.dsh-ac-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
         '[data-ac-theme="light"] .dsh-ac-preview{box-shadow:0 8px 24px rgba(0,0,0,.14);border-color:rgba(0,0,0,.12)}',
         '[data-ac-theme="light"] .dsh-ac-day{background:color-mix(in srgb,var(--dsw-alias-bg-base,#fff) 90%,transparent);color:#555}',
@@ -398,6 +401,19 @@ window.__ModuleLoader__.load({
     }
 
     /* ---- E：fork-tree 联动（当前会话是分叉时，在流顶部显示分叉徽标） ---- */
+    /** 侧栏没有暴露 active 标记时，用文档标题（会话名）兜底识别当前行。 */
+    function titleMatches(row) {
+      const title = (document.title || '').replace(/\s+[\u2014\u2013-]\s+DeepSeek Harness.*$/, '').trim();
+      if (title === '') return false;
+      const text = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      return text.indexOf(title) !== -1;
+    }
+
+    /** 会话标题（文档标题去掉产品后缀），用于分叉徽标文案。 */
+    function forkTitle() {
+      return (document.title || '').replace(/\s+[\u2014\u2013-]\s+DeepSeek Harness.*$/, '').trim();
+    }
+
     function forkInfo() {
       if (CFG.forkchip !== true) return null;
       const rows = document.querySelectorAll('[data-ft-session]');
@@ -406,7 +422,8 @@ window.__ModuleLoader__.load({
         const active =
           row.getAttribute('aria-current') === 'true' ||
           row.getAttribute('data-active') === 'true' ||
-          row.querySelector('[aria-current="true"],[data-active="true"]') !== null;
+          row.querySelector('[aria-current="true"],[data-active="true"]') !== null ||
+          titleMatches(row);
         if (!active) continue;
         const depth = Number(row.getAttribute('data-ft-depth') || 0);
         if (!(depth > 0)) return null;
@@ -418,6 +435,10 @@ window.__ModuleLoader__.load({
     function applyForkChip(flow) {
       let chip = flow.querySelector('.dsh-ac-fork');
       const info = forkInfo();
+      if (info !== null && info.title) {
+        const clean = forkTitle();
+        if (clean !== '') info.title = clean;
+      }
       if (info === null) {
         if (chip !== null) chip.parentNode.removeChild(chip);
         return;
@@ -639,29 +660,84 @@ window.__ModuleLoader__.load({
       apply();
     }
 
-    function ensurePinButton(user) {
-      if (CFG.pin !== true) {
-        const old = user.querySelector('.dsh-ac-pin');
-        if (old !== null) old.parentNode.removeChild(old);
-        return;
+    let pinLayerEl = null;
+    const pinBtns = new Map();
+
+    function pinLayer() {
+      if (pinLayerEl !== null && pinLayerEl.isConnected) return pinLayerEl;
+      pinLayerEl = document.createElement('div');
+      pinLayerEl.className = 'dsh-ac-pinlayer';
+      document.body.appendChild(pinLayerEl);
+      pinBtns.clear();
+      return pinLayerEl;
+    }
+
+    /** 钉住按钮放在 body 层：聊天流由 React 管理，行内子节点会被重渲染抹掉。 */
+    let pinClickHooked = false;
+
+    /** 钉住按钮统一用 document 捕获阶段代理：行/层可能被 React 重渲染替换，逐按钮监听会失效。 */
+    function hookPinClicks() {
+      if (pinClickHooked) return;
+      pinClickHooked = true;
+      document.addEventListener('click', function (event) {
+        const target = event.target;
+        if (target === null || typeof target.closest !== 'function') return;
+        const btn = target.closest('.dsh-ac-pin');
+        if (btn === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const turn = btn.getAttribute('data-ac-for');
+        if (!turn) return;
+        try {
+          window.__acPinId = turn;
+          togglePin(turn);
+          apply();
+        } catch (e) { window.__acPinErr = (e && e.message) || String(e); }
+      }, true);
+    }
+
+    function syncPins(flow, rendered) {
+      hookPinClicks();
+      const layer = pinLayer();
+      let fr = flow.getBoundingClientRect();
+      if (!(fr.height > 10)) fr = { top: 0, bottom: window.innerHeight };
+      const keep = new Set();
+      for (let i = 0; i < rendered.length; i += 1) {
+        const user = rendered[i].user;
+        const id = user.getAttribute('data-chat-turn');
+        if (id === null) continue;
+        keep.add(id);
+        if (CFG.pin !== true) continue;
+        const rect = user.getBoundingClientRect();
+        const visible = rect.width > 40 && rect.height > 0 && rect.bottom > fr.top + 1 && rect.top < fr.bottom - 1;
+        let btn = pinBtns.get(id);
+        if (btn === undefined || !btn.isConnected) {
+          btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'dsh-ac-pin';
+          btn.setAttribute('data-ac-for', id);
+          layer.appendChild(btn);
+          pinBtns.set(id, btn);
+        }
+        btn.style.display = visible ? 'inline-flex' : 'none';
+        if (!visible) continue;
+        btn.style.left = Math.round(rect.right - 40) + 'px';
+        btn.style.top = Math.round(rect.top + rect.height / 2 - 10) + 'px';
+        const on = pinned.has(id);
+        btn.textContent = on ? '📌' : '📍';
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.setAttribute('data-ac-on', on ? '1' : '0');
+        const label = on ? t('unpin') : t('pin');
+        if (btn.getAttribute('aria-label') !== label) {
+          btn.setAttribute('aria-label', label);
+          btn.setAttribute('title', label);
+        }
       }
-      let btn = user.querySelector('.dsh-ac-pin');
-      if (btn === null) {
-        btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'dsh-ac-pin';
-        user.appendChild(btn);
-      }
-      const id = user.getAttribute('data-chat-turn');
-      const on = pinned.has(id);
-      const pressed = on ? 'true' : 'false';
-      if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
-      btn.textContent = '📌';
-      const label = on ? t('unpin') : t('pin');
-      if (btn.getAttribute('aria-label') !== label) {
-        btn.setAttribute('aria-label', label);
-        btn.setAttribute('title', label);
-      }
+      pinBtns.forEach(function (btn, id) {
+        if (keep.has(id) && CFG.pin === true && btn.isConnected) return;
+        if (btn.parentNode !== null) btn.parentNode.removeChild(btn);
+        pinBtns.delete(id);
+      });
     }
 
     /* ---- A：时间线（日期分组吸头 / 连接线 / hover 预览） ------------------ */
@@ -947,7 +1023,6 @@ window.__ModuleLoader__.load({
 
         setAttr(user, USER_ATTR, '1');
         user.removeAttribute(HIDE_ATTR);
-        ensurePinButton(user);
         setAttr(user, PIN_ATTR, isPinned(group.id) ? '1' : '0');
         setAttr(user, 'role', 'button');
         setAttr(user, 'tabindex', '0');
@@ -978,6 +1053,7 @@ window.__ModuleLoader__.load({
           }
         }
       }
+      syncPins(flow, rendered);
       if (query !== '') {
         const keep = [];
         for (let i = 0; i < rendered.length; i += 1) {

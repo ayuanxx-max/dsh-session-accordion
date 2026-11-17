@@ -224,7 +224,12 @@ function procOf(g) {
   for (var i = 0; i < g.items.length; i++) if (g.items[i].getAttribute('data-chat-flow-kind') === 'turn-process') return g.items[i];
   return null;
 }
-function userOf(g) {
+function pinOf(user) {
+      var id = user.getAttribute('data-chat-turn');
+      return document.querySelector('.dsh-ac-pin[data-ac-for="' + id + '"]');
+    }
+
+    function userOf(g) {
   for (var i = 0; i < g.items.length; i++) if (g.items[i].querySelector('[class*="_bubble"]')) return g.items[i];
   return null;
 }
@@ -453,7 +458,7 @@ var checks = {
     helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
     return wait(280).then(function () {
       var gs = groups();
-      var btn = userOf(gs[0]).querySelector('.dsh-ac-pin');
+      var btn = pinOf(userOf(gs[0]));
       if (btn === null) return { ok: false, detail: 'no pin button' };
       btn.click();
       return wait(220).then(function () {
@@ -465,7 +470,7 @@ var checks = {
           var g3 = groups();
           var stillOpen = !isHidden(procOf(g3[0]));
           var threeFolded = isHidden(procOf(g3[2]));
-          var btn2 = userOf(g3[0]).querySelector('.dsh-ac-pin');
+          var btn2 = pinOf(userOf(g3[0]));
           btn2.click();
           return wait(240).then(function () {
             var g4 = groups();
@@ -481,7 +486,7 @@ var checks = {
     helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
     return wait(280).then(function () {
       var gs = groups();
-      var btn = userOf(gs[0]).querySelector('.dsh-ac-pin');
+      var btn = pinOf(userOf(gs[0]));
       if (btn === null) return { ok: false, detail: 'no pin button' };
       btn.click();
       return wait(220).then(function () {
@@ -557,7 +562,7 @@ var checks = {
       var gs = groups();
       var row = userOf(gs[0]);
       var label = row.getAttribute('aria-label') || '';
-      var btn = row.querySelector('.dsh-ac-pin');
+      var btn = pinOf(row);
       window.__acConfig({ i18n: 'en' });
       var en = btn === null ? '' : btn.getAttribute('aria-label');
       window.__acConfig({ i18n: 'zh' });

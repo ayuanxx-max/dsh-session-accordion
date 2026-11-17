@@ -2,6 +2,23 @@
 
 All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
 
+## 3.0.0-live（本地真机验证，2026-11-17）
+
+本地装进 profile（`link:` 直连仓库）后在真实 React 聊天流里逐项核对，发现并修掉 3 个只有真机才暴露的问题：
+
+1. **📌 钉住按钮被 React 抹掉**：按钮原先 append 到 `[data-chat-turn]` 行内，聊天流每次重渲染都会删掉这个外来子节点，
+   所以真机上根本看不到 📌。改为 `#dsh-ac-pinlayer` 固定层（`position:fixed` + `pointer-events:none`，按钮自身 `auto`），
+   每轮 `apply()` 里按行 `getBoundingClientRect()` 重定位、按 turn id 复用与回收。
+2. **分叉徽标取不到干净标题**：侧栏行文本含「进行中 / 8分钟」等噪声，徽标写成「↳ 分叉 · L1 · 进行中DSH会话交互折叠功能8分钟」。
+   改为优先用 `document.title` 去掉产品后缀；侧栏没有 active 标记时用标题匹配兜底识别当前会话。
+3. **搜索框压在标题栏上**：`top:14px` 在无边框窗口里盖住窗口按钮区，改到 `top:44px`。
+
+同时把折叠行文本右内边距从 28px 调到 56px，避免一行摘要与 📌/箭头挤在一起。
+
+真机核对结论（截图 `docs/live/`）：日期头「今天」✓、📌 钉住按钮✓、`↳ 分叉 · L1 · <会话名>` 徽标✓、
+hover 预览气泡（时间 + 正文 + “点击展开”）✓、Ctrl+Shift+F 搜索条✓、仅最新一轮展开✓。
+回归：11 个场景 harness 全绿；`tools/check.ps1` PASS。
+
 ## 3.0.0-draft（本地，未发布）— 六大特性 + 三处残留修复
 
 > 未执行 `发布 x.x.x` 口令，本段只记录本地改动；版本号仍是 2.5.9，发布时再 bump。

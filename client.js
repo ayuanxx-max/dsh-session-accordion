@@ -801,7 +801,7 @@ window.__ModuleLoader__.load({
               host.setAttribute('data-ac-pos', '1');
             }
             // 关闭滚动锚定：上面内容高度一变，浏览器会自己挪 scrollTop，看起来就是“上下乱跳”
-            host.style.overflowAnchor = 'none';
+            host.style.overflowAnchor = 'auto';
           } catch (err) { /* 拿不到样式就按现有包含块 */ }
         }
         host.appendChild(pinLayerEl);
@@ -1283,6 +1283,8 @@ window.__ModuleLoader__.load({
     }
 
     let samplerOn = false;
+    let chatScroller = null;
+    let lastLayoutSig = '';
     let applyDepth = 0;
 
     /**
@@ -1440,6 +1442,32 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** 真正在滚的容器：从一条“当前 DOM 里的行”向上找，避免拿到过期 flow 的祖先链。 */
+    function chatScrollerFor(flow) {
+      if (chatScroller !== null && chatScroller.isConnected && chatScroller.contains(flow)) return chatScroller;
+      let probe = flow;
+      try {
+        const row = flow.querySelector('[data-chat-turn]');
+        if (row !== null) probe = row;
+      } catch (err) { /* 忽略 */ }
+      let node = probe;
+      let guard = 0;
+      while (node !== null && guard < 24) {
+        guard += 1;
+        if (node.nodeType === 1) {
+          try {
+            if (node.scrollHeight - node.clientHeight > 8) {
+              chatScroller = node;
+              return node;
+            }
+          } catch (err) { /* 忽略 */ }
+        }
+        node = node.parentElement;
+      }
+      chatScroller = null;
+      return null;
+    }
+
     /** 视口里第一条“这次不会被改动”的轮次：拿它的屏幕位置当锚点。 */
     function pickAnchorRow(list, skipIds) {
       const host = scrollWatchedHost;
@@ -1459,6 +1487,20 @@ window.__ModuleLoader__.load({
         if (turn.getBoundingClientRect().bottom > top + 1) return turn;
       }
       return null;
+    }
+
+    /** 会影响布局的那几件事（日期头、分叉徽标）只在“语义签名”变化时才做。 */
+    function layoutSignature(rendered, pinnedIds) {
+      let sig = String(expandedId) + ':' + rendered.length;
+      let day = null;
+      for (let i = 0; i < rendered.length; i += 1) {
+        const k = dayKeyOf(rendered[i].stamp);
+        if (k === day) continue;
+        day = k;
+        sig += ' d' + k;
+      }
+      for (let i = 0; i < pinnedIds.length; i += 1) sig += ' p' + pinnedIds[i];
+      return sig;
     }
 
     function applyInner(force) {
@@ -1524,7 +1566,7 @@ window.__ModuleLoader__.load({
       const hWhole0 = flow.scrollHeight;
       const anchorRow = pickAnchorRow(list, [beforeExpanded, expandedId]);
       const anchorTop = anchorRow === null ? null : anchorRow.getBoundingClientRect().top;
-      const scroller = scrollWatchedHost;
+      const scroller = chatScrollerFor(flow) || scrollWatchedHost;
       const st0 = scroller !== null && scroller.isConnected ? scroller.scrollTop : null;
       stats.passes += 1;
       stats.rows += list.length;
@@ -1609,7 +1651,13 @@ window.__ModuleLoader__.load({
       }
       const daysBefore = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
       const hBefore = flow.scrollHeight;
-      applyDays(flow, rendered);
+      const pinnedIds = [];
+      pinned.forEach(function (id) { pinnedIds.push(id); });
+      pinnedIds.sort();
+      const layoutSig = layoutSignature(rendered, pinnedIds);
+      const layoutSame = layoutSig === lastLayoutSig;
+      lastLayoutSig = layoutSig;
+      if (!layoutSame) applyDays(flow, rendered);
       const daysAfter = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
       const hAfter = flow.scrollHeight;
       if (daysAfter > daysBefore) DBG.counters.daysAdd += daysAfter - daysBefore;
@@ -1617,7 +1665,7 @@ window.__ModuleLoader__.load({
       if (hAfter !== hBefore) { DBG.counters.hChange += 1; dbg('H ' + hBefore + '->' + hAfter + ' exp=' + expandedId); }
       if (DBG.lastH !== 0 && hAfter !== DBG.lastH) { dbg('Hcum ' + DBG.lastH + '->' + hAfter); }
       DBG.lastH = hAfter;
-      applyForkChip(flow);
+      if (!layoutSame) applyForkChip(flow);
       // 放在最后一次会改变行位置的 DOM 操作之后：日期头/分叉徽标会让所有行下移，
       // 先写坐标就会整体错位（真机"图标乱放"的根因之一）。
       syncPins(flow, rendered);
@@ -1633,6 +1681,7 @@ window.__ModuleLoader__.load({
         if (Math.abs(delta) > 1 && beyond > 40) {
           scroller.scrollTop = st0 + delta;
           DBG.counters.anchored += 1;
+          dbg('ANC ' + Math.round(delta) + ' h=' + scroller.scrollHeight);
         }
       }
       if (flow.scrollHeight !== hWhole0) {

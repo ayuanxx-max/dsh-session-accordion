@@ -63,13 +63,28 @@ window.__ModuleLoader__.load({
       },
     };
 
+    /**
+     * 语言来源（“随系统设置”）：显式配置优先，其次应用自己的 html[lang]、
+     * 再看 body/根节点的 lang、最后退回 navigator.language。
+     */
     function lang() {
       if (CFG.i18n === 'zh' || CFG.i18n === 'en') return CFG.i18n;
       try {
-        return /^zh/i.test(window.navigator.language || '') ? 'zh' : 'en';
+        const picks = [
+          document.documentElement.getAttribute('lang'),
+          document.body === null ? null : document.body.getAttribute('lang'),
+          window.navigator.language,
+          window.navigator.userLanguage,
+        ];
+        for (let i = 0; i < picks.length; i += 1) {
+          const v = String(picks[i] || '');
+          if (/^zh/i.test(v)) return 'zh';
+          if (/^en/i.test(v)) return 'en';
+        }
       } catch (err) {
-        return 'zh';
+        /* 取不到就用默认 */
       }
+      return 'zh';
     }
 
     function t(key) {
@@ -109,6 +124,67 @@ window.__ModuleLoader__.load({
       } catch (err) {
         /* 主题只影响观感 */
       }
+    }
+
+    /* ===== 临时诊断 HUD：定位“滚动上下跳 / 乱打开”，定位完即删 ===== */
+    const DBG = {
+      on: (function () {
+        try {
+          return window.localStorage.getItem('dsh-ac-debug') === '1';
+        } catch (err) {
+          return false;
+        }
+      })(),
+      counters: {
+        applyDuringScroll: 0, apply: 0, wheel: 0, reset: 0, noVis: 0, pv: 0, pvSupp: 0,
+        daysAdd: 0, daysDel: 0, hChange: 0, mut: 0, rFlow: 0, rEmpty: 0, flip: 0, hWhole: 0,
+        scrollN: 0, jump: 0, sampled: 0, anchored: 0,
+      },
+      lastExpanded: null,
+      lastTop: null,
+      lastY: null,
+      lines: [],
+      el: null,
+      lastH: 0,
+    };
+    function dbgRender() {
+      if (DBG.on !== true) return;
+      if (DBG.el === null || !document.body.contains(DBG.el)) {
+        DBG.el = document.createElement('pre');
+        DBG.el.id = 'dsh-ac-dbg';
+        DBG.el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483647;margin:0;padding:6px 8px;'
+          + 'background:rgba(0,0,0,.85);color:#7CFC00;font:12px/1.3 Consolas,monospace;max-width:700px;'
+          + 'white-space:pre;pointer-events:none;border-radius:6px';
+        document.body.appendChild(DBG.el);
+      }
+      const c = DBG.counters;
+      if (DBG.on === true) {
+        let prob = [];
+        let node = flowRef;
+        let guard = 0;
+        while (node !== null && node !== document.body && guard < 8) {
+          guard += 1;
+          if (node.nodeType === 1) {
+            prob.push((node.tagName || '?').slice(0, 6) + ':' + node.scrollTop + '/' + (node.scrollHeight - node.clientHeight));
+          }
+          node = node.parentElement;
+        }
+        DBG.probe = prob.join(' ');
+      }
+      DBG.el.textContent = 'mut=' + c.mut + ' A=' + c.apply + ' Ascroll=' + c.applyDuringScroll
+        + ' W=' + c.wheel + ' RESET=' + c.reset + ' Rflow=' + c.rFlow + ' Rempty=' + c.rEmpty
+        + ' S=' + c.scrollN + ' SAMP=' + c.sampled + ' JUMP=' + c.jump + ' ANC=' + c.anchored
+        + ' NOVIS=' + c.noVis
+        + ' PV=' + c.pv + '/' + c.pvSupp + ' day+=' + c.daysAdd + '-' + c.daysDel
+        + ' dh=' + c.hChange + ' H=' + c.hWhole + ' flip=' + c.flip
+        + '\n' + (DBG.probe || '') + '\n' + DBG.lines.join('\n');
+    }
+    function dbg(label) {
+      if (DBG.on !== true) return;
+      const d = new Date();
+      DBG.lines.push(d.toTimeString().slice(3, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0') + ' ' + label);
+      while (DBG.lines.length > 5) DBG.lines.shift();
+      dbgRender();
     }
 
     function ensureStyle() {
@@ -724,6 +800,8 @@ window.__ModuleLoader__.load({
               host.style.position = 'relative';
               host.setAttribute('data-ac-pos', '1');
             }
+            // 关闭滚动锚定：上面内容高度一变，浏览器会自己挪 scrollTop，看起来就是“上下乱跳”
+            host.style.overflowAnchor = 'none';
           } catch (err) { /* 拿不到样式就按现有包含块 */ }
         }
         host.appendChild(pinLayerEl);
@@ -782,9 +860,9 @@ window.__ModuleLoader__.load({
           tw = ctx.measureText(user.getAttribute(TEXT_ATTR) || '').width;
         } catch (err) { tw = 0; }
         const endX = Math.min(textL + tw, textR);
-        // “隔两个字符”按图标边缘到文字算：半个按钮宽 + 2 字符
+        // “隔一个字符”按图标边缘到文字算：半个按钮宽 + 1 字符
         return {
-          x: Math.min(endX + chWidthOf(font) * 2 + PIN_HALF, row.right - 34),
+          x: Math.min(endX + chWidthOf(font) + PIN_HALF, row.right - 34),
           y: row.top + row.height / 2
         };
       }
@@ -792,7 +870,7 @@ window.__ModuleLoader__.load({
       const box = bubble === null ? user : bubble;
       const pt = firstTextPoint(box);
       const font = fontOf(window.getComputedStyle(box));
-      return { x: pt.x - chWidthOf(font) * 2 - PIN_HALF, y: pt.y };
+      return { x: pt.x - chWidthOf(font) - PIN_HALF, y: pt.y };
     }
 
     function pinHotspot(rowEl, clientX, clientY) {
@@ -875,7 +953,7 @@ window.__ModuleLoader__.load({
       }
       if (padCh === 0) padCh = padFallback;
       if (CFG.pin === true && padCh > 0) {
-        const pad = Math.round(PIN_HALF * 2 + padCh * 2 + 4) + 'px';
+        const pad = Math.round(PIN_HALF * 2 + padCh + 4) + 'px';
         if (flow.getAttribute(PINBOX_ATTR) !== '1') flow.setAttribute(PINBOX_ATTR, '1');
         if (flow.style.getPropertyValue('--dsh-ac-pinpad') !== pad) flow.style.setProperty('--dsh-ac-pinpad', pad);
       } else if (flow.getAttribute(PINBOX_ATTR) !== null) {
@@ -1091,10 +1169,13 @@ window.__ModuleLoader__.load({
       // 滚动中（或刚停下）不弹预览：滚轮让行从指针下滑过也会触发 mouseover，
       // 那样会"打开一个鼠标指针停留的会话"——其实用户根本没想打开它。
       if (Date.now() < scrollQuietUntil) {
+        DBG.counters.pvSupp += 1;
         hidePreview();
         return;
       }
       if (previewFor === row) return;
+      DBG.counters.pv += 1;
+      dbg('PV+ ' + row.getAttribute(TIME_ATTR));
       previewPending = row;
       if (previewTimer !== 0) window.clearTimeout(previewTimer);
       previewTimer = window.setTimeout(function () {
@@ -1125,24 +1206,143 @@ window.__ModuleLoader__.load({
     let scrollWatched = null;
     let scrollWatchedHost = null;
 
-    function noteScroll() {
+    /** 从滚轮/按键的落点向上找“真的在滚”的容器：挂错层会导致静默期根本进不去。 */
+    function adoptScroller(target) {
+      let node = target instanceof Element ? target : null;
+      let guard = 0;
+      while (node !== null && guard < 14) {
+        guard += 1;
+        if (node.nodeType === 1) {
+          try {
+            if (node.scrollHeight - node.clientHeight > 8) {
+              if (scrollWatchedHost !== node) {
+                scrollWatchedHost = node;
+                DBG.lastTop = node.scrollTop;
+                DBG.lastY = null;
+              }
+              bindScrollers(node);
+              return;
+            }
+          } catch (err) { /* 忽略 */ }
+        }
+        node = node.parentElement;
+      }
+    }
+
+    function noteScroll(event) {
+      DBG.counters.wheel += 1;
+      if (event !== undefined && event !== null && event.target !== null) adoptScroller(event.target);
+      const host = scrollWatchedHost;
+      if (host !== null && host.isConnected) {
+        const st = host.scrollTop;
+        DBG.counters.scrollN += 1;
+        if (DBG.lastTop !== null) {
+          const d = st - DBG.lastTop;
+          // 一次滚动里位移超过 220px 就算“跳”（滚轮一档通常 100~130px）
+          if (Math.abs(d) > 220) {
+            DBG.counters.jump += 1;
+            dbg('JUMP ' + Math.round(DBG.lastTop) + '->' + Math.round(st));
+          }
+        }
+        DBG.lastTop = st;
+      }
       scrollQuietUntil = Date.now() + 160;
       if (typeof hidePreview === 'function') hidePreview();
+    }
+
+    /** 系统/应用语言变了：预览与按钮提示文字要跟着换（“随系统设置”）。 */
+    function watchLang() {
+      try {
+        window.addEventListener('languagechange', function () { apply(true); }, { passive: true });
+      } catch (err) {
+        /* 老内核没有这个事件 */
+      }
+    }
+
+    const scrollBound = new WeakSet();
+
+    /** 找到所有“真的在滚”的祖先并逐个挂监听：只挂一个容器时经常会挂错层。 */
+    function bindScrollers(el) {
+      let node = el;
+      let guard = 0;
+      while (node !== null && node !== document.documentElement && guard < 12) {
+        guard += 1;
+        if (node.nodeType === 1 && !scrollBound.has(node)) {
+          let scrollable = false;
+          try {
+            scrollable = node.scrollHeight - node.clientHeight > 8;
+          } catch (err) { /* 忽略 */ }
+          if (scrollable) {
+            scrollBound.add(node);
+            node.addEventListener('scroll', noteScroll, { passive: true });
+            if (scrollWatchedHost === null) scrollWatchedHost = node;
+          }
+        }
+        node = node.parentElement;
+      }
+    }
+
+    let samplerOn = false;
+    let applyDepth = 0;
+
+    /**
+     * 采样兜底：无论滚动发生在哪个容器（事件常常收不到），只要聊天区在视口里的位置变了，
+     * 就认为“用户正在滚动”，进入静默期。顺带统计“跳”：一帧内位移 > 220px。
+     */
+    function startSampler() {
+      if (samplerOn) return;
+      samplerOn = true;
+      let frame = 0;
+      const tick = function () {
+        frame += 1;
+        if (frame % 3 === 0 && document.visibilityState === 'visible') {
+          const host = scrollWatchedHost;
+          if (host !== null && host.isConnected && applyDepth === 0) {
+            const y = host.scrollTop;
+            if (DBG.lastY === null || DBG.lastY === undefined) {
+              DBG.lastY = y;
+            } else {
+              const d = y - DBG.lastY;
+              if (Math.abs(d) > 1) {
+                DBG.counters.sampled += 1;
+                if (Math.abs(d) > 220) {
+                  DBG.counters.jump += 1;
+                  dbg('JUMP(' + Math.round(DBG.lastY) + '->' + Math.round(y) + ')');
+                }
+                // 采样到滚动但事件没来（合成滚动/惯性）：也要进静默期
+                scrollQuietUntil = Date.now() + 160;
+              }
+              DBG.lastY = y;
+            }
+          }
+        }
+        window.requestAnimationFrame(tick);
+      };
+      window.requestAnimationFrame(tick);
     }
 
     function watchScroll(host) {
       if (scrollWatched === null) {
         scrollWatched = true;
-        window.addEventListener('scroll', noteScroll, { passive: true, capture: true });
+        watchLang();
+        startSampler();
+        document.addEventListener('scroll', noteScroll, { passive: true, capture: true });
         window.addEventListener('wheel', noteScroll, { passive: true, capture: true });
+        window.addEventListener('touchmove', noteScroll, { passive: true, capture: true });
+        document.addEventListener('keydown', noteScroll, { passive: true, capture: true });
       }
-      if (host !== null && host !== document.body && scrollWatchedHost !== host) {
-        scrollWatchedHost = host;
-        host.addEventListener('scroll', noteScroll, { passive: true });
-      }
+      if (host !== null && host !== document.body) bindScrollers(host);
+    }
+
+    /** 只清“缓存”，保留 expandedId / 钉住：容器一时空掉不该把展开状态清成最新一条。 */
+    function dropSeen() {
+      seenIds = [];
+      seenNodes = [];
     }
 
     function resetState() {
+      DBG.counters.reset += 1;
+      dbg('RESET');
       expandedId = null;
       seenIds = [];
       seenNodes = [];
@@ -1158,6 +1358,15 @@ window.__ModuleLoader__.load({
       return false;
     }
 
+    /** 新 id 集是旧集的前缀 = 尾部整段消失（换会话/整批替换）；虚拟滚动只会掐掉头部。 */
+    function isChopTail(prev, ids) {
+      if (ids.length >= prev.length) return false;
+      for (let i = 0; i < ids.length; i += 1) {
+        if (ids[i] !== prev[i]) return false;
+      }
+      return true;
+    }
+
     function isAppend(prev, ids) {
       if (prev.length === 0 || ids.length <= prev.length) return false;
       for (let i = 0; i < prev.length; i++) {
@@ -1171,26 +1380,28 @@ window.__ModuleLoader__.load({
      *   整批替换（无交集）= 换会话 → 最新；新轮追加 → 最新；
      *   向上加载历史（交集仍在）= 保持；展开目标消失 → 最新。
      */
-    function trackExpanded(flow, list) {
+    function trackExpanded(flow, list, switched, resting) {
       const ids = list.map(function (group) {
         return group.id;
       });
       if (ids.length === 0) return ids;
       const last = ids[ids.length - 1];
       const prev = seenIds;
-      const prevNodes = seenNodes;
-      let replaced = false;
-      if (prevNodes.length > 0) {
-        replaced = true;
-        for (let i = 0; i < prevNodes.length; i += 1) {
-          if (flow !== null && flow.contains(prevNodes[i])) {
-            replaced = false;
-            break;
-          }
-        }
-      }
-      if (prev.length === 0) {
+      if (switched === true) {
+        // 换了会话（sessionKey 变了）：不论 id 是否撞车，都回到“只展开最新一条”
         expandedId = last;
+        seenIds = ids;
+        seenNodes = [];
+        for (let i = 0; i < list.length; i += 1) {
+          for (let j = 0; j < list[i].items.length; j += 1) seenNodes.push(list[i].items[j]);
+        }
+        return ids;
+      }
+      const keepCurrent = expandedId !== null && ids.indexOf(expandedId) !== -1;
+      if (prev.length === 0) {
+        // 首次渲染 / 容器刚从空态恢复：只有确实还没有展开目标时才选最新，
+        // 否则“容器闪一下空”就会把用户正看着的轮次折掉、换成最新一条（= 乱打开 + 视口跳）。
+        if (!keepCurrent) expandedId = last;
       } else {
         let overlap = false;
         for (let i = 0; i < ids.length; i++) {
@@ -1199,13 +1410,18 @@ window.__ModuleLoader__.load({
             break;
           }
         }
-        if (replaced || !overlap) {
+        // 只认 id 层的整批替换（换会话）。绝不能拿“节点是否还在 DOM”判断：
+        // 流式渲染时 React 会把行全部重建一次，旧节点集体消失，会被误判成换会话。
+        if (!overlap) {
           expandedId = last;
         } else if (isAppend(prev, ids)) {
           expandedId = last;
-        } else if (expandedId !== null && ids.indexOf(expandedId) === -1) {
+        } else if (isChopTail(prev, ids) && resting === true) {
+          // 尾部整段消失也可能是滚动时的虚拟卸载：只有“停着不动”时才当成换会话
           expandedId = last;
         }
+        // 其余情况保持：虚拟滚动会把展开行临时移出 DOM，此时若改判“最新一条”，
+        // 它回到 DOM 时是折叠态 → 视口上方内容突然变矮 → 上下乱跳。
       }
       seenIds = ids;
       seenNodes = [];
@@ -1216,6 +1432,36 @@ window.__ModuleLoader__.load({
     }
 
     function apply(force) {
+      applyDepth += 1;
+      try {
+        return applyInner(force);
+      } finally {
+        applyDepth -= 1;
+      }
+    }
+
+    /** 视口里第一条“这次不会被改动”的轮次：拿它的屏幕位置当锚点。 */
+    function pickAnchorRow(list, skipIds) {
+      const host = scrollWatchedHost;
+      let top = 0;
+      if (host !== null && host.isConnected) top = host.getBoundingClientRect().top;
+      for (let i = 0; i < list.length; i += 1) {
+        if (skipIds.indexOf(list[i].id) !== -1) continue;
+        let user = null;
+        try {
+          user = pick(list[i]).user;
+        } catch (err) {
+          user = null;
+        }
+        if (user === null) continue;
+        const turn = user.closest('[data-chat-turn]');
+        if (turn === null) continue;
+        if (turn.getBoundingClientRect().bottom > top + 1) return turn;
+      }
+      return null;
+    }
+
+    function applyInner(force) {
       if (force !== true && Date.now() < scrollQuietUntil) {
         // 滚动中：推迟到停下之后，避免日期头/折叠切换把视口顶得上下跳
         const wait = Math.min(400, scrollQuietUntil - Date.now() + 40);
@@ -1224,29 +1470,40 @@ window.__ModuleLoader__.load({
       }
       ensureStyle();
       const flow = findFlow();
-      if (flow === null) {
-        resetState();
+      if (flow === null || !flow.isConnected) {
+        DBG.counters.rFlow += 1;
+        dbg('Rflow');
+        dropSeen();
         hiddenSince = 0;
         return 0;
       }
+      flowRef = flow;
       const list = groups(flow);
       if (list.length === 0) {
-        resetState();
+        DBG.counters.rEmpty += 1;
+        dbg('Rempty n=' + flow.children.length);
+        dropSeen();
         hiddenSince = 0;
         return 0;
       }
       // 视图被隐藏（切会话/切面板）：保留状态并跳过渲染；隐藏超过 1.5s 后
       // 再次可见视为"重新打开会话"，回到只展开最新一条。
       if (!hasVisibleRow(flow)) {
+        DBG.counters.noVis += 1;
+        dbg('NOVIS');
         if (hiddenSince === 0) hiddenSince = Date.now();
         return 0;
       }
       if (hiddenSince !== 0 && Date.now() - hiddenSince > 1500) resetState();
       hiddenSince = 0;
+      const beforeExpanded = expandedId;
       const key = sessionKey(flow);
       let restored = null;
-      if (key !== memKey) restored = loadMem(key);
-      const ids = trackExpanded(flow, list);
+      if (key !== memKey) {
+        restored = loadMem(key);
+        if (restored === null) expandedId = null;
+      }
+      const ids = trackExpanded(flow, list, key !== memKey, Date.now() >= scrollQuietUntil);
       if (restored !== null && restored.expanded !== undefined && restored.expanded !== null &&
           ids.indexOf(String(restored.expanded)) !== -1) {
         expandedId = String(restored.expanded);
@@ -1255,6 +1512,20 @@ window.__ModuleLoader__.load({
         logged = true;
         console.info('[auto-collapse] active: turns=' + list.length + ' expanded=' + expandedId);
       }
+      DBG.counters.apply += 1;
+      if (Date.now() < scrollQuietUntil) DBG.counters.applyDuringScroll += 1;
+      if (DBG.lastExpanded !== expandedId) {
+        if (DBG.lastExpanded !== null || expandedId !== null) {
+          DBG.counters.flip += 1;
+          dbg('FLIP ' + String(DBG.lastExpanded).slice(-6) + ' -> ' + String(expandedId).slice(-6));
+        }
+        DBG.lastExpanded = expandedId;
+      }
+      const hWhole0 = flow.scrollHeight;
+      const anchorRow = pickAnchorRow(list, [beforeExpanded, expandedId]);
+      const anchorTop = anchorRow === null ? null : anchorRow.getBoundingClientRect().top;
+      const scroller = scrollWatchedHost;
+      const st0 = scroller !== null && scroller.isConnected ? scroller.scrollTop : null;
       stats.passes += 1;
       stats.rows += list.length;
       const rendered = [];
@@ -1336,7 +1607,16 @@ window.__ModuleLoader__.load({
       if (countEl !== null) {
         countEl.textContent = query === '' ? '' : (matches.length === 0 ? t('noMatch') : (Math.min(matchIdx, matches.length - 1) + 1) + '/' + matches.length);
       }
+      const daysBefore = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
+      const hBefore = flow.scrollHeight;
       applyDays(flow, rendered);
+      const daysAfter = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
+      const hAfter = flow.scrollHeight;
+      if (daysAfter > daysBefore) DBG.counters.daysAdd += daysAfter - daysBefore;
+      if (daysAfter < daysBefore) DBG.counters.daysDel += daysBefore - daysAfter;
+      if (hAfter !== hBefore) { DBG.counters.hChange += 1; dbg('H ' + hBefore + '->' + hAfter + ' exp=' + expandedId); }
+      if (DBG.lastH !== 0 && hAfter !== DBG.lastH) { dbg('Hcum ' + DBG.lastH + '->' + hAfter); }
+      DBG.lastH = hAfter;
       applyForkChip(flow);
       // 放在最后一次会改变行位置的 DOM 操作之后：日期头/分叉徽标会让所有行下移，
       // 先写坐标就会整体错位（真机"图标乱放"的根因之一）。
@@ -1345,6 +1625,20 @@ window.__ModuleLoader__.load({
       lastPinRows = rendered;
       schedulePinFix();
       saveMem();
+      if (anchorRow !== null && anchorTop !== null && anchorRow.isConnected && st0 !== null &&
+          scroller !== null && scroller.isConnected) {
+        const beyond = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+        const delta = anchorRow.getBoundingClientRect().top - anchorTop;
+        // 贴底时不补偿（这时应当跟随最新内容），其它情况把锚点钉回原处
+        if (Math.abs(delta) > 1 && beyond > 40) {
+          scroller.scrollTop = st0 + delta;
+          DBG.counters.anchored += 1;
+        }
+      }
+      if (flow.scrollHeight !== hWhole0) {
+        DBG.counters.hWhole += 1;
+        dbg('HW ' + hWhole0 + '->' + flow.scrollHeight);
+      }
       return list.length;
     }
 
@@ -1467,6 +1761,29 @@ window.__ModuleLoader__.load({
     }
 
     let observer = null;
+    let flowRef = null;
+    const IGNORE_SEL = '#dsh-ac-dbg,.dsh-ac-pinlayer,.dsh-ac-preview,#dsh-ac-search';
+
+    /** 只关心聊天区里的变化（侧栏计时、状态栏、面板框架的抖动都不该触发重排）。 */
+    function inChatTree(el) {
+      const flow = flowRef;
+      if (flow === null || !flow.isConnected) return true;
+      if (flow === el || flow.contains(el)) return true;
+      if (typeof el.contains === 'function' && el.contains(flow)) return true;
+      return false;
+    }
+
+    /** 我们自己的写入会触发 observer：不过滤就会“apply -> 写 DOM -> apply”无限循环。 */
+    function mutationMatters(records) {
+      for (let i = 0; i < records.length; i += 1) {
+        const tgt = records[i].target;
+        if (!(tgt instanceof Element)) continue;
+        if (tgt.closest(IGNORE_SEL) !== null) continue;
+        if (tgt.hasAttribute(DAY_ATTR)) continue;
+        if (inChatTree(tgt)) return true;
+      }
+      return false;
+    }
     let timer = 0;
     let disposed = false;
 
@@ -1503,7 +1820,10 @@ window.__ModuleLoader__.load({
       document.addEventListener('mouseover', onOver, true);
       document.addEventListener('mouseout', onOut, true);
       try {
-        observer = new MutationObserver(schedule);
+        observer = new MutationObserver(function (records) {
+          DBG.counters.mut += 1;
+          if (mutationMatters(records)) schedule();
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true });
       } catch (err) {
         console.warn('[auto-collapse] observer unavailable', err);

@@ -1,5 +1,44 @@
 # Changelog · 更新记录
 
+## 3.0.0-live 修订 6（乱跳/乱打开的第四个真根因，📌 隔 1 字符、提示随系统语言，2026-11-17）
+
+反馈仍然是：**鼠标滚动上下时还是会上下乱跳，并乱打开**；另外要求 📌 与文字只隔 **1** 个字符、悬停提示文字**跟随系统语言**。
+
+这次不再靠"截图两帧对比"猜，而是给插件装了计数 HUD，在真机（Electron DSH NEXT 1098×1240）上跑同一段滚动，读出真实数据：
+
+```text
+mut=130 A=19 Ascroll=0 W=52 RESET=0 Rflow=0 Rempty=1 NOVIS=0 PV=0/0 flip=2 dh=0 H=0
+（修前：40 秒内 A=26 却有 RESET=613，即 613 次 apply 走了"提前返回 + 清空折叠状态"的分支）
+FLIP 43 -> 39   ← 用户没点任何东西，展开目标自己变了
+JUMP 3235 -> 466（−2769px，紧跟在 FLIP 后 35ms）
+```
+
+四个根因（前面几版都在打外围）：
+
+| # | 根因 | 为什么会导致"乱跳 + 乱打开" | 修法 |
+| --- | --- | --- | --- |
+| 1 | `MutationObserver` 挂在 `document.documentElement` 的整个子树，apply 自己写 DOM（钉住层、日期头）又触发 observer → 自触发循环 | 每秒几十次 apply，其中大量在"容器瞬时空"的分支里跑 | observer 只认**聊天区**里的变化，并且忽略插件自己写的节点（`#dsh-ac-dbg`/`.dsh-ac-pinlayer`/`.dsh-ac-preview`/日期头）；实测 `mut` 从 600+/40s 降到 ~130 |
+| 2 | 容器一瞬为空就 `resetState()`，`trackExpanded` 里 `prev.length === 0` 也直接"展开最新一条" | 用户正看着的轮次被折掉、换成最新一条 → 视口上方内容高度骤变 → **上下跳**；看起来就是"自己打开了一条" | 空态只清缓存（`dropSeen`），不再丢 `expandedId`/钉住状态；首次渲染只在"确实还没有展开目标"时才选最新 |
+| 3 | 用"上一轮的 DOM 节点是否还在 flow 里"判断是否换了会话 | 流式渲染时 React 会把行整批重建，旧节点集体消失 → 误判换会话 → 又折掉当前轮次 | 换会话改用 `sessionKey`；id 层面只认"无交集"与"追加"；`isChopTail` 只在**静止**时生效（虚拟卸载也会掐掉尾部，滚动中不能当换会话） |
+| 4 | 折叠/展开改变高度 + 浏览器滚动锚定 | 浏览器自己挪 `scrollTop`，表现为滚动中突然蹦一屏 | ① 滚动容器设 `overflow-anchor: none`；② 自己实现视口锚定：以"这次不会被改动的第一条可见行"为锚点，用 `scrollTop` 抵消高度变化（贴底不补偿，避免抢"跟随最新"） |
+
+顺带：
+
+- 📌 与文字间距 **2 字符 → 1 字符**（`pinAnchor` 里 `chWidthOf(font) * 1`；气泡内左侧内缩同步改为 `PIN_HALF*2 + 1ch + 4`，保持一致），折叠行仍居中、仍不越出气泡右边界。
+- 悬停提示/预览文字**跟随系统语言**：`CFG.i18n` → `documentElement.lang` → `body.lang` → `navigator.language` → `navigator.userLanguage`，并监听 `languagechange` 后立即 `apply(true)` 重绘。
+- 滚轮/滚动落点向上找**真正在滚**的容器（`adoptScroller`）再挂监听：之前挂错层，静默期经常根本没进。
+- 新增回归断言 `expand-survives-rerender`：同 id 整批重建（= React 重渲染）后，用户手动展开的那一条必须还是它（这条用例能直接挡住根因 3 复发）。
+
+验证：
+
+- 11 场景 / **43 断言全绿**（新增 `expand-survives-rerender`）。
+- 真机重载后连点 加载更早 ×3、慢速上滚 6 档再下滚 6 档：`flip` 不再增长、`PV=0`（滚动中不弹预览）、`Ascroll=0`（静默期内不 apply）、`H=0`（apply 不改变 `scrollHeight`）。
+- `tools\check.ps1` = `RESULT: PASS (13 checks)`。
+
+诚实边界：滚动"跳"有一部分来自应用自身（流式自动跟到底是 DSH 行为、虚拟滚动会卸载行）。这版保证的是**插件不再改展开目标、不再改高度、不再自触发重排**；若还看到跳，可 `localStorage['dsh-ac-debug']='1'` 后「重新加载界面」，左下角会显示上面那行计数，把 `FLIP/JUMP/RESET` 的读数发我即可定位到具体机制。
+
+回滚：`git revert <本提交>`；只想关预览：`localStorage['dsh-ac-config']` 设 `{"timeline":false}`；想关钉住：`__acConfig({pin:false})`。
+
 ## 3.0.0-live 修订 5（滚动不再上下跳 / 滚过去的行不再弹"预览会话"，2026-11-17）
 
 真机反馈：**鼠标滚动上下时还是会上下乱跳，并在乱跳后打开一个鼠标指针停留的会话**。

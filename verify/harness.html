@@ -302,6 +302,25 @@ var checks = {
       return { ok: u.getAttribute('data-ac-text') === 'xyz', detail: { text: u.getAttribute('data-ac-text') } };
     });
   },
+  /* 关键回归：行节点被整批重建（React 重渲染、id 不变）时，用户手动展开的那一条必须还是它。
+     以前这里靠“旧节点是否还在 DOM”判断换会话，重建时会被误判 → 折掉用户正看的行、改展开最新一条。 */
+  expandSurvivesRerender: function () {
+    helpers.replaceSession(['s1', 's2', 's3'], 'same ');
+    return wait(220).then(function () {
+      var gs = groups();
+      userOf(gs[0]).click();
+      return wait(140).then(function () {
+        helpers.replaceSession(['s1', 's2', 's3'], 'same ');
+        return wait(220).then(function () {
+          var g2 = groups();
+          var firstOpen = !isHidden(procOf(g2[0]));
+          var newestFolded = isHidden(procOf(g2[2]));
+          return { ok: firstOpen && newestFolded,
+                   detail: { firstOpen: firstOpen, newestFolded: newestFolded } };
+        });
+      });
+    });
+  },
   sessionSwitchCollidingIds: function () {
     helpers.replaceSession(['1', '2', '3', '4', '5'], '会话A ');
     return wait(180).then(function () {
@@ -466,7 +485,7 @@ var checks = {
       var tw = ctx.measureText(u.getAttribute('data-ac-text') || '').width;
       var ch = ctx.measureText('0').width;
       var endX = Math.min(row.left + 104 + tw, row.right - 62);
-      var wantX = Math.min(endX + ch * 2 + 11, row.right - 34);
+      var wantX = Math.min(endX + ch + 11, row.right - 34);
       var gotX = br.left + br.width / 2;
       var gotY = br.top + br.height / 2;
       var rowY = row.top + row.height / 2;
@@ -508,7 +527,7 @@ var checks = {
       var cs = window.getComputedStyle(bubble);
       ctx.font = (cs.fontWeight || '400') + ' ' + (cs.fontSize || '12px') + ' ' + (cs.fontFamily || 'sans-serif');
       var ch = ctx.measureText('0').width;
-      var wantX = tx - ch * 2 - 11;
+      var wantX = tx - ch - 11;
       var br = btn.getBoundingClientRect();
       var gotX = br.left + br.width / 2;
       var gotY = br.top + br.height / 2;

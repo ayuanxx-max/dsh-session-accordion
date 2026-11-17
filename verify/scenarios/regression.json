@@ -6,6 +6,10 @@
       "js": "window.__check.sameLengthSummary()"
     },
     {
+      "name": "expand-survives-rerender",
+      "js": "window.__check.expandSurvivesRerender()"
+    },
+    {
       "name": "session-switch-colliding-ids",
       "js": "window.__check.sessionSwitchCollidingIds()"
     },

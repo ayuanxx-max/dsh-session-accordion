@@ -34,6 +34,10 @@
     {
       "name": "scroll-stability",
       "js": "window.__check.scrollStability()"
+    },
+    {
+      "name": "scroll-up-keeps-expansion",
+      "js": "window.__check.scrollUpKeepsExpansion()"
     }
   ]
 }

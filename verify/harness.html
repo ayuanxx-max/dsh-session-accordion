@@ -198,6 +198,13 @@ var helpers = {
     flow.appendChild(el);
     return el;
   },
+  /** 模拟“往上滚 / 加载更早”：在头部插入更早的轮次（新的 id，旧 id 保持不动）。 */
+  prependTurns: function (n, prefix) {
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < n; i++) frag.appendChild(buildTurn((prefix || 'old') + (++seq), '更早 ' + seq, fmt(seq), 3));
+    flow.insertBefore(frag, flow.firstChild);
+    return n;
+  },
   replaceSession: function (ids, prefix) {
     flow.innerHTML = '';
     seq = 0;
@@ -286,6 +293,34 @@ var checks = {
               resolve({ ok: !stillOpen && newestOpen,
                         detail: { previousStillOpen: stillOpen, newestOpen: newestOpen } });
             });
+          });
+        });
+      });
+    });
+  },
+
+  /** 往上滚（头部插入更早的轮次）不许改展开目标：不许收起用户展开的那条，也不许乱开别的。 */
+  scrollUpKeepsExpansion: function () {
+    helpers.seed(12, 2);
+    return wait(700).then(function () {
+      var gs = groups();
+      var target = gs[5];
+      var targetProc = procOf(target);
+      var newest = gs[gs.length - 1];
+      var newestProc = procOf(newest);
+      userOf(target).click();
+      return wait(260).then(function () {
+        if (isHidden(targetProc)) return { ok: false, detail: 'manual expand failed' };
+        // 模拟滚上去触发“加载更早”
+        helpers.prependTurns(3);
+        return wait(260).then(function () {
+          helpers.prependTurns(2);
+          return wait(320).then(function () {
+            var after = groups();
+            var open = [];
+            for (var i = 0; i < after.length; i += 1) if (!isHidden(procOf(after[i]))) open.push(after[i].id);
+            var ok = open.length === 1 && open[0] === target.id && !isHidden(targetProc);
+            return { ok: ok, detail: { open: open, want: target.id, turns: after.length, newestFolded: isHidden(procOf(newest)) } };
           });
         });
       });

@@ -139,6 +139,7 @@ window.__ModuleLoader__.load({
         applyDuringScroll: 0, apply: 0, wheel: 0, reset: 0, noVis: 0, pv: 0, pvSupp: 0,
         daysAdd: 0, daysDel: 0, hChange: 0, mut: 0, rFlow: 0, rEmpty: 0, flip: 0, hWhole: 0,
         scrollN: 0, jump: 0, sampled: 0, anchored: 0,
+        memRestore: 0, keyChange: 0, keepDuringScroll: 0,
       },
       lastExpanded: null,
       lastTop: null,
@@ -173,7 +174,8 @@ window.__ModuleLoader__.load({
       }
       DBG.el.textContent = 'mut=' + c.mut + ' A=' + c.apply + ' Ascroll=' + c.applyDuringScroll
         + ' W=' + c.wheel + ' RESET=' + c.reset + ' Rflow=' + c.rFlow + ' Rempty=' + c.rEmpty
-        + ' S=' + c.scrollN + ' SAMP=' + c.sampled + ' JUMP=' + c.jump + ' ANC=' + c.anchored
+        + ' S=' + c.scrollN + ' SAMP=' + c.sampled + ' JUMP=' + c.jump + ' ANC=' + c.anchored + ' KEY=' + c.keyChange + ' MEM=' + c.memRestore
+        + ' KEEP=' + c.keepDuringScroll
         + ' NOVIS=' + c.noVis
         + ' PV=' + c.pv + '/' + c.pvSupp + ' day+=' + c.daysAdd + '-' + c.daysDel
         + ' dh=' + c.hChange + ' H=' + c.hWhole + ' flip=' + c.flip
@@ -683,15 +685,18 @@ window.__ModuleLoader__.load({
       } catch (err) {
         title = '';
       }
-      const first = flow.querySelector('[data-chat-turn]');
-      const head = first !== null ? (first.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      if (title === '') {
+        try { title = (document.title || '').replace(/\s+/g, ' ').trim().slice(0, 60); } catch (err2) { title = ''; }
+      }
+      // 绝不能把“第一行的文字”算进 key：往上滚 / 虚拟滚动 / 加载更早都会换掉首行，
+      // key 跟着漂移 → 被当成“换了会话” → 展开状态被清空 + 按别的记忆恢复成另一条。
       let path = '';
       try {
         path = window.location.pathname || '';
       } catch (err) {
         path = '';
       }
-      const seed = title + '|' + head + '|' + path;
+      const seed = title + '|' + path;
       let hash = 5381;
       for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) + hash + seed.charCodeAt(i)) | 0;
       return 'ac:' + (hash >>> 0).toString(36);
@@ -1285,6 +1290,8 @@ window.__ModuleLoader__.load({
     let samplerOn = false;
     let chatScroller = null;
     let lastLayoutSig = '';
+    let switchedNow = false;
+    let lastForkSig = '';
     let applyDepth = 0;
 
     /**
@@ -1389,8 +1396,17 @@ window.__ModuleLoader__.load({
       if (ids.length === 0) return ids;
       const last = ids[ids.length - 1];
       const prev = seenIds;
-      if (switched === true) {
-        // 换了会话（sessionKey 变了）：不论 id 是否撞车，都回到“只展开最新一条”
+      let overlap = false;
+      for (let i = 0; i < ids.length; i++) {
+        if (prev.indexOf(ids[i]) !== -1) {
+          overlap = true;
+          break;
+        }
+      }
+      switchedNow = false;
+      if (switched === true && !overlap) {
+        // 真的换了会话（key 变了且 id 一个都不重合）：回到“只展开最新一条”
+        switchedNow = true;
         expandedId = last;
         seenIds = ids;
         seenNodes = [];
@@ -1405,13 +1421,6 @@ window.__ModuleLoader__.load({
         // 否则“容器闪一下空”就会把用户正看着的轮次折掉、换成最新一条（= 乱打开 + 视口跳）。
         if (!keepCurrent) expandedId = last;
       } else {
-        let overlap = false;
-        for (let i = 0; i < ids.length; i++) {
-          if (prev.indexOf(ids[i]) !== -1) {
-            overlap = true;
-            break;
-          }
-        }
         // 只认 id 层的整批替换（换会话）。绝不能拿“节点是否还在 DOM”判断：
         // 流式渲染时 React 会把行全部重建一次，旧节点集体消失，会被误判成换会话。
         if (!overlap) {
@@ -1548,12 +1557,16 @@ window.__ModuleLoader__.load({
       let restored = null;
       if (key !== memKey) {
         restored = loadMem(key);
-        if (restored === null) expandedId = null;
+        DBG.counters.keyChange += 1;
+        dbg('KEY ' + String(memKey) + ' -> ' + String(key));
       }
       const ids = trackExpanded(flow, list, key !== memKey, Date.now() >= scrollQuietUntil);
-      if (restored !== null && restored.expanded !== undefined && restored.expanded !== null &&
-          ids.indexOf(String(restored.expanded)) !== -1) {
+      // 记忆只在“真换会话”时恢复。同一个会话内滚动导致 key 抖动时，
+      // 恢复旧记忆会把展开目标换成历史上某一条 —— 这正是“收起最新一条又打开别的”的来源。
+      if (switchedNow && restored !== null && restored.expanded !== undefined &&
+          restored.expanded !== null && ids.indexOf(String(restored.expanded)) !== -1) {
         expandedId = String(restored.expanded);
+        DBG.counters.memRestore += 1;
       }
       if (!logged && list.length > 0) {
         logged = true;
@@ -1567,6 +1580,11 @@ window.__ModuleLoader__.load({
           dbg('FLIP ' + String(DBG.lastExpanded).slice(-6) + ' -> ' + String(expandedId).slice(-6));
         }
         DBG.lastExpanded = expandedId;
+      }
+      if (force !== true && beforeExpanded !== null && Date.now() < scrollQuietUntil &&
+          ids.indexOf(beforeExpanded) !== -1 && expandedId !== beforeExpanded) {
+        expandedId = beforeExpanded;
+        DBG.counters.keepDuringScroll += 1;
       }
       const hWhole0 = flow.scrollHeight;
       const anchorRow = pickAnchorRow(list, [beforeExpanded, expandedId]);
@@ -1670,7 +1688,14 @@ window.__ModuleLoader__.load({
       if (hAfter !== hBefore) { DBG.counters.hChange += 1; dbg('H ' + hBefore + '->' + hAfter + ' exp=' + expandedId); }
       if (DBG.lastH !== 0 && hAfter !== DBG.lastH) { dbg('Hcum ' + DBG.lastH + '->' + hAfter); }
       DBG.lastH = hAfter;
-      if (!layoutSame) applyForkChip(flow);
+      // 分叉徽标单独签名：它只在“有没有分叉/层级/标题”变化时才该动，
+      // 但也不能被 layoutSame 一起跳过（否则会话切走之后徽标会赖着不走）。
+      const forkInfoNow = forkInfo();
+      const forkSig = forkInfoNow === null ? 'none' : ('L' + forkInfoNow.depth + '|' + String(forkInfoNow.title));
+      if (forkSig !== lastForkSig) {
+        lastForkSig = forkSig;
+        applyForkChip(flow);
+      }
       // 放在最后一次会改变行位置的 DOM 操作之后：日期头/分叉徽标会让所有行下移，
       // 先写坐标就会整体错位（真机"图标乱放"的根因之一）。
       syncPins(flow, rendered);

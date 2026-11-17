@@ -726,40 +726,80 @@ window.__ModuleLoader__.load({
       return pinLayerEl;
     }
 
-    /** 钉住按钮统一用 document 捕获阶段代理：行/层可能被 React 重渲染替换，逐按钮监听会失效。 */
-    let pinClickHooked = false;
+    const PIN_HALF = 11; // 按钮 22px 的一半
 
-    /** 钉住热区：真实聊天区里按钮会被覆盖层挡住指针，所以点击判定挂到行本身（行点击是可靠的）。 */
-    function pinHotspot(rowEl, clientX, clientY, rowRect) {
-      const row = rowRect === undefined ? rowEl.getBoundingClientRect() : rowRect;
-      if (!(row.width > 60 && row.height > 0)) return false;
-      const folded = rowEl.getAttribute(LINE_ATTR) === '1';
-      let endX = row.right;
-      let font = '';
-      if (folded) {
-        const cs = window.getComputedStyle(rowEl, '::after');
-        font = fontOf(cs);
+    /** 气泡里第一个可见字符的位置（client 坐标）；取不到就退回 padding 估算。 */
+    function firstTextPoint(root) {
+      try {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+        let node = walker.nextNode();
+        let guard = 0;
+        while (node !== null && guard < 200) {
+          guard += 1;
+          const text = String(node.nodeValue || '');
+          if (text.replace(/\s+/g, '') !== '') {
+            const rng = document.createRange();
+            rng.setStart(node, 0);
+            rng.setEnd(node, 1);
+            const rect = rng.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              return { x: rect.left, y: rect.top + rect.height / 2 };
+            }
+          }
+          node = walker.nextNode();
+        }
+      } catch (err) { /* 退回估算 */ }
+      const cs = window.getComputedStyle(root);
+      const r = root.getBoundingClientRect();
+      return { x: r.left + (parseFloat(cs.paddingLeft) || 0), y: r.top + r.height / 2 };
+    }
+
+    /**
+     * 钉住按钮落点（client 坐标）：渲染与点击热区共用这一套，避免两份公式各算各的。
+     * 折叠行：摘要文字末尾 + 2 字符，行内垂直居中。
+     * 展开行（钉住态同此）：正文第一个字符前方 2 字符，垂直对齐那一行文字（不是整块中心）。
+     */
+    function pinAnchor(user) {
+      const row = user.getBoundingClientRect();
+      if (!(row.width > 60 && row.height > 0)) return null;
+      if (user.getAttribute(LINE_ATTR) === '1') {
+        const cs = window.getComputedStyle(user, '::after');
+        const font = fontOf(cs);
+        // 摘要文字盒的左右内缩以样式为准（CSS 改了这里自动跟上，不再硬编码 104/62）
+        const padL = parseFloat(cs.left);
+        const padR = parseFloat(cs.right);
+        const textL = row.left + (isFinite(padL) ? padL : 104);
+        const textR = row.right - (isFinite(padR) ? padR : 62);
         let tw = 0;
         try {
           const ctx = ctx2d();
           ctx.font = font;
-          tw = ctx.measureText(rowEl.getAttribute(TEXT_ATTR) || '').width;
+          tw = ctx.measureText(user.getAttribute(TEXT_ATTR) || '').width;
         } catch (err) { tw = 0; }
-        endX = Math.min(row.left + 104 + tw, row.right - 62);
-      } else {
-        const bubble = rowEl.querySelector('[class*="_bubble"]');
-        endX = bubble === null ? row.right : bubble.getBoundingClientRect().right;
-        font = fontOf(window.getComputedStyle(rowEl));
+        const endX = Math.min(textL + tw, textR);
+        // “隔两个字符”按图标边缘到文字算：半个按钮宽 + 2 字符
+        return {
+          x: Math.min(endX + chWidthOf(font) * 2 + PIN_HALF, row.right - 34),
+          y: row.top + row.height / 2
+        };
       }
-      const x = Math.min(endX + chWidthOf(font) * 2, row.right - 34);
-      const y = row.top + row.height / 2;
-      return Math.abs(clientX - x) <= 13 && Math.abs(clientY - y) <= 13;
+      const bubble = user.querySelector('[class*="_bubble"]');
+      const box = bubble === null ? user : bubble;
+      const pt = firstTextPoint(box);
+      const font = fontOf(window.getComputedStyle(box));
+      return { x: pt.x - chWidthOf(font) * 2 - PIN_HALF, y: pt.y };
+    }
+
+    function pinHotspot(rowEl, clientX, clientY) {
+      const pos = pinAnchor(rowEl);
+      if (pos === null) return false;
+      return Math.abs(clientX - pos.x) <= 13 && Math.abs(clientY - pos.y) <= 13;
     }
 
     /**
-     * 位置：行文字末尾 + 2 字符，垂直居中于该行（折叠行取摘要文字末尾，展开行取气泡右缘）。
-     * 性能：每轮"只读一批、再只写一批"（读写不交替 => 不触发逐行强制重排），
-     * 且只给视口内的行写坐标；层在滚动容器内，滚动本身不产生任何 JS 工作。
+     * 位置与点击热区都来自 pinAnchor()：折叠行在摘要末尾 +2 字符，展开行在正文首字前 2 字符。
+     * 性能：每轮"只读一批、再只写一批"（读写不交替 => 不触发逐行强制重排）。
+     * 坐标是内容坐标系（不随滚动变化），所以不用视口筛选：筛掉再恢复反而会造成 📌 忽隐忽现地"跳"。
      */
     let pinFixRaf = 0;
     let pinFixTimer = 0;
@@ -770,6 +810,7 @@ window.__ModuleLoader__.load({
       const flow = lastPinFlow;
       const rows = lastPinRows;
       if (flow === null || rows === null || !flow.isConnected || CFG.pin !== true) return;
+      if (rows.length > 0 && !rows[0].user.isConnected) return;
       syncPins(flow, rows);
     }
 
@@ -791,6 +832,13 @@ window.__ModuleLoader__.load({
       if (pinHostNode === null || !pinHostNode.isConnected) {
         pinHostNode = scrollHostOf(flow) || document.body;
         pinHostSerial += 1;
+      } else if (pinHostNode === document.body) {
+        // 首次可能在布局完成前退到了 body，之后认出真容器就升级（坐标每轮全量重算，安全）
+        const real = scrollHostOf(flow);
+        if (real !== null && real !== pinHostNode) {
+          pinHostNode = real;
+          pinHostSerial += 1;
+        }
       }
       const host = pinHostNode;
       const layer = pinLayer(host);
@@ -799,12 +847,10 @@ window.__ModuleLoader__.load({
       const scrollLeft = isBody ? (window.pageXOffset || 0) : (host.scrollLeft || 0);
       let hTop = 0;
       let hLeft = 0;
-      let hBottom = window.innerHeight;
       if (!isBody) {
         const hr = host.getBoundingClientRect();
         hTop = hr.top;
         hLeft = hr.left;
-        hBottom = hr.bottom;
       }
       const keep = new Set();
       const plan = [];
@@ -816,41 +862,17 @@ window.__ModuleLoader__.load({
           if (id === null) continue;
           keep.add(id);
           const on = pinned.has(id);
-          const row = user.getBoundingClientRect();
-          if (!(row.width > 60 && row.height > 0)) {
+          const pos = pinAnchor(user);
+          if (pos === null) {
             plan.push({ id, on, show: false });
             continue;
           }
-          if (row.bottom < hTop - 160 || row.top > hBottom + 160) {
-            plan.push({ id, on, show: false });
-            continue;
-          }
-          const folded = user.getAttribute(LINE_ATTR) === '1';
-          let endX = row.right;
-          let font = '';
-          if (folded) {
-            const cs = window.getComputedStyle(user, '::after');
-            font = fontOf(cs);
-            const body = user.getAttribute(TEXT_ATTR) || '';
-            let tw = 0;
-            try {
-              const ctx = ctx2d();
-              ctx.font = font;
-              tw = ctx.measureText(body).width;
-            } catch (err) { tw = 0; }
-            endX = Math.min(row.left + 104 + tw, row.right - 62);
-          } else {
-            const bubble = user.querySelector('[class*="_bubble"]');
-            endX = (bubble === null ? row : bubble.getBoundingClientRect()).right;
-            font = fontOf(window.getComputedStyle(user));
-          }
-          const ch = chWidthOf(font);
           plan.push({
             id: id,
             on: on,
             show: true,
-            x: Math.round(Math.min(endX + ch * 2, row.right - 34) - hLeft + scrollLeft),
-            y: Math.round(row.top + row.height / 2 - hTop + scrollTop)
+            x: Math.round(pos.x - hLeft + scrollLeft),
+            y: Math.round(pos.y - hTop + scrollTop)
           });
         }
         // 阶段二：只写

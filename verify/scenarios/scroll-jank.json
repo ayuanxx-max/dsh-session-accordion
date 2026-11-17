@@ -26,6 +26,10 @@
     {
       "name": "line-contract",
       "js": "window.__check.lineContract()"
+    },
+    {
+      "name": "pin-scroll-geometry",
+      "js": "window.__check.pinScrollGeometry()"
     }
   ]
 }

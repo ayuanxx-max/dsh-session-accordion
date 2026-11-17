@@ -466,7 +466,7 @@ var checks = {
       var tw = ctx.measureText(u.getAttribute('data-ac-text') || '').width;
       var ch = ctx.measureText('0').width;
       var endX = Math.min(row.left + 104 + tw, row.right - 62);
-      var wantX = Math.min(endX + ch * 2, row.right - 34);
+      var wantX = Math.min(endX + ch * 2 + 11, row.right - 34);
       var gotX = br.left + br.width / 2;
       var gotY = br.top + br.height / 2;
       var rowY = row.top + row.height / 2;
@@ -474,6 +474,89 @@ var checks = {
         ok: br.width > 0 && Math.abs(gotY - rowY) < 2 && Math.abs(gotX - wantX) < 3,
         detail: { gotX: gotX, wantX: wantX, gotY: gotY, rowY: rowY, w: br.width, h: br.height, textLen: (u.getAttribute('data-ac-text') || '').length, rowTop: row.top, rowH: row.height, btnTop: br.top, btnL: br.left, styleTop: btn.style.top, styleLeft: btn.style.left, layer: (function () { var l = btn.parentNode.getBoundingClientRect(); return { t: l.top, l: l.left }; }()), line: u.getAttribute('data-ac-line') }
       };
+    });
+  },
+  pinGeometryOpen: function () {
+    var gs = groups();
+    var u = null;
+    for (var i = 0; i < gs.length; i += 1) {
+      var cand = userOf(gs[i]);
+      if (cand.getAttribute('data-ac-line') !== '1' && cand.querySelector('[class*="_bubble"]') !== null) { u = cand; break; }
+    }
+    if (u === null) return { ok: false, detail: 'no expanded row' };
+    var btn = pinOf(u);
+    if (btn === null) return { ok: false, detail: 'no pin for expanded row' };
+    return wait(150).then(function () {
+      var bubble = u.querySelector('[class*="_bubble"]');
+      var walker = document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT, null);
+      var node = walker.nextNode();
+      var tx = null;
+      var ty = null;
+      var guard = 0;
+      while (node !== null && guard < 200) {
+        guard += 1;
+        if (String(node.nodeValue || '').replace(/\s+/g, '') !== '') {
+          var rng = document.createRange();
+          rng.setStart(node, 0); rng.setEnd(node, 1);
+          var rr = rng.getBoundingClientRect();
+          if (rr.width > 0 && rr.height > 0) { tx = rr.left; ty = rr.top + rr.height / 2; break; }
+        }
+        node = walker.nextNode();
+      }
+      if (tx === null) return { ok: false, detail: 'no text point' };
+      var ctx = document.createElement('canvas').getContext('2d');
+      var cs = window.getComputedStyle(bubble);
+      ctx.font = (cs.fontWeight || '400') + ' ' + (cs.fontSize || '12px') + ' ' + (cs.fontFamily || 'sans-serif');
+      var ch = ctx.measureText('0').width;
+      var wantX = tx - ch * 2 - 11;
+      var br = btn.getBoundingClientRect();
+      var gotX = br.left + br.width / 2;
+      var gotY = br.top + br.height / 2;
+      return {
+        ok: br.width > 0 && Math.abs(gotX - wantX) < 3 && Math.abs(gotY - ty) < 2,
+        detail: { gotX: gotX, wantX: wantX, gotY: gotY, textY: ty, textX: tx, ch: ch, w: br.width, h: br.height, layer: btn.parentNode.tagName }
+      };
+    });
+  },
+  pinScrollGeometry: function () {
+    helpers.seed(120, 8);
+    return wait(400).then(function () {
+      var samples = {};
+      var steps = [100, 140, 220, -180, -300, 260, 60];
+      var i = 0;
+      var worst = 0;
+      var offenders = [];
+      function one() {
+        if (i >= steps.length) {
+          return { ok: offenders.length === 0 && Object.keys(samples).length > 0,
+                   detail: { worst: Math.round(worst * 100) / 100, offenders: offenders.slice(0, 6), ids: Object.keys(samples).length } };
+        }
+        helpers.scrollStep(steps[i]);
+        i += 1;
+        return wait(140).then(function () {
+          var pins = document.querySelectorAll('.dsh-ac-pin');
+          for (var k = 0; k < pins.length; k += 1) {
+            var btn = pins[k];
+            if (btn.style.display === 'none') continue;
+            var id = btn.getAttribute('data-ac-for');
+            var row = document.querySelector('[data-chat-turn="' + id + '"][data-ac-line]');
+            if (row === null) continue;
+            var bb = btn.getBoundingClientRect();
+            var rb = row.getBoundingClientRect();
+            if (bb.width === 0 || rb.height === 0) continue;
+            var dy = (bb.top + bb.height / 2) - rb.top;
+            var dx = (bb.left + bb.width / 2) - rb.left;
+            var prev = samples[id];
+            if (prev === undefined) { samples[id] = { dy: dy, dx: dx }; continue; }
+            var delta = Math.max(Math.abs(dy - prev.dy), Math.abs(dx - prev.dx));
+            if (delta > worst) worst = delta;
+            if (delta > 1.2 && offenders.indexOf(id + ':' + Math.round(delta * 10) / 10) < 0) offenders.push(id + ':' + Math.round(delta * 10) / 10);
+            samples[id] = { dy: dy, dx: dx };
+          }
+          return one();
+        });
+      }
+      return one();
     });
   },
   pinToggle: function () {

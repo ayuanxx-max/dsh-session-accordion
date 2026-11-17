@@ -16,6 +16,10 @@
     {
       "name": "pin-geometry",
       "js": "window.__check.pinGeometry()"
+    },
+    {
+      "name": "pin-geometry-open",
+      "js": "window.__check.pinGeometryOpen()"
     }
   ]
 }

@@ -12,6 +12,10 @@
     {
       "name": "only-newest-fresh",
       "js": "window.__check.onlyNewestFresh()"
+    },
+    {
+      "name": "pin-geometry",
+      "js": "window.__check.pinGeometry()"
     }
   ]
 }

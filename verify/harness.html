@@ -454,6 +454,28 @@ var checks = {
     });
   },
 
+  pinGeometry: function () {
+    var u = userOf(groups()[0]);
+    var btn = pinOf(u);
+    return wait(150).then(function () {
+      var row = u.getBoundingClientRect();
+      var br = btn.getBoundingClientRect();
+      var ctx = document.createElement('canvas').getContext('2d');
+      var cs = window.getComputedStyle(u, '::after');
+      ctx.font = (cs.fontWeight || '400') + ' ' + (cs.fontSize || '12px') + ' ' + (cs.fontFamily || 'sans-serif');
+      var tw = ctx.measureText(u.getAttribute('data-ac-text') || '').width;
+      var ch = ctx.measureText('0').width;
+      var endX = Math.min(row.left + 104 + tw, row.right - 62);
+      var wantX = Math.min(endX + ch * 2, row.right - 34);
+      var gotX = br.left + br.width / 2;
+      var gotY = br.top + br.height / 2;
+      var rowY = row.top + row.height / 2;
+      return {
+        ok: br.width > 0 && Math.abs(gotY - rowY) < 2 && Math.abs(gotX - wantX) < 3,
+        detail: { gotX: gotX, wantX: wantX, gotY: gotY, rowY: rowY, w: br.width, h: br.height, textLen: (u.getAttribute('data-ac-text') || '').length, rowTop: row.top, rowH: row.height, btnTop: br.top, btnL: br.left, styleTop: btn.style.top, styleLeft: btn.style.left, layer: (function () { var l = btn.parentNode.getBoundingClientRect(); return { t: l.top, l: l.left }; }()), line: u.getAttribute('data-ac-line') }
+      };
+    });
+  },
   pinToggle: function () {
     helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
     return wait(280).then(function () {

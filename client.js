@@ -132,7 +132,7 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:not([' + TIME_ATTR + '])::before{content:none}',
 
         '[' + LINE_ATTR + '="1"]::after{content:attr(' + TEXT_ATTR + ');position:absolute;',
-        '  left:104px;right:56px;top:50%;transform:translateY(-50%);',
+        '  left:104px;right:62px;top:50%;transform:translateY(-50%);',
         '  font-size:.92em;line-height:1.5em;white-space:nowrap;overflow:hidden;',
         '  text-overflow:ellipsis;color:var(--dsw-alias-label-secondary,#c9c9c9)}',
         '[' + LINE_ATTR + '="1"]:not([' + TIME_ATTR + '])::after{left:12px}',
@@ -152,14 +152,13 @@ window.__ModuleLoader__.load({
         '[' + FILTER_ATTR + '="1"]{display:none!important}',
         '[' + HIT_ATTR + '="1"]{box-shadow:inset 0 0 0 1px rgba(255,196,0,.55)}',
         '[data-ac-user="1"]{position:relative}',
-        '.dsh-ac-pin{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:20px;height:20px;',
-        '  display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;',
-        '  font-size:13px;line-height:1;cursor:pointer;opacity:.62;background:transparent;',
-        '  color:inherit;transition:opacity .12s ease,background-color .12s ease}',
+        '.dsh-ac-pin{position:absolute;left:0;top:0;width:22px;height:22px;margin:0;padding:0;border:0;',
+        '  transform:translate(-50%,-50%);display:inline-flex;align-items:center;justify-content:center;',
+        '  font-size:13px;line-height:1;cursor:pointer;opacity:.45;background:transparent;color:inherit;',
+        '  border-radius:6px;transition:opacity .12s ease,background-color .12s ease}',
         '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
-        '[data-ac-pinned="1"] .dsh-ac-pin{opacity:1}',
-        '.dsh-ac-pinlayer{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:9996}',
-        '.dsh-ac-pinlayer .dsh-ac-pin{position:absolute;right:auto;top:auto;margin:0;pointer-events:auto}',
+        '.dsh-ac-pinlayer{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;z-index:4}',
+        '.dsh-ac-pinlayer .dsh-ac-pin{pointer-events:auto}',
         '.dsh-ac-pin[data-ac-on="1"]{opacity:1}',
         '.dsh-ac-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
         '[data-ac-theme="light"] .dsh-ac-preview{box-shadow:0 8px 24px rgba(0,0,0,.14);border-color:rgba(0,0,0,.12)}',
@@ -661,21 +660,58 @@ window.__ModuleLoader__.load({
     }
 
     let pinLayerEl = null;
+    let pinLayerHost = null;
     const pinBtns = new Map();
+    const pinGeom = new Map();
+    let pinShape = '';
+    let chCache = { font: '', w: 0 };
+    let measureCtx = null;
 
-    function pinLayer() {
-      if (pinLayerEl !== null && pinLayerEl.isConnected) return pinLayerEl;
-      pinLayerEl = document.createElement('div');
-      pinLayerEl.className = 'dsh-ac-pinlayer';
-      document.body.appendChild(pinLayerEl);
-      pinBtns.clear();
+    function ctx2d() {
+      if (measureCtx === null) measureCtx = document.createElement('canvas').getContext('2d');
+      return measureCtx;
+    }
+
+    function fontOf(cs) {
+      return (cs.fontStyle || 'normal') + ' ' + (cs.fontWeight || '400') + ' ' +
+        (cs.fontSize || '12px') + ' ' + (cs.fontFamily || 'sans-serif');
+    }
+
+    /** 1 个字符宽（按字体缓存，避免每行重复 measureText）。 */
+    function chWidthOf(font) {
+      if (font === chCache.font && chCache.w > 0) return chCache.w;
+      let w = 7;
+      try {
+        const ctx = ctx2d();
+        ctx.font = font;
+        w = ctx.measureText('0').width || 7;
+      } catch (err) { w = 7; }
+      chCache = { font, w };
+      return w;
+    }
+
+    /** 钉住层放在 flow 内部：随聊天内容一起滚动，滚动时不需要任何 JS 重排。 */
+    function pinLayer(flow) {
+      if (pinLayerEl === null) {
+        pinLayerEl = document.createElement('div');
+        pinLayerEl.className = 'dsh-ac-pinlayer';
+      }
+      if (pinLayerHost !== flow || pinLayerEl.parentNode !== flow) {
+        pinLayerHost = flow;
+        try {
+          if (window.getComputedStyle(flow).position === 'static') flow.style.position = 'relative';
+        } catch (err) { /* 定位失败就用现有包含块 */ }
+        while (pinLayerEl.firstChild !== null) pinLayerEl.removeChild(pinLayerEl.firstChild);
+        pinBtns.clear();
+        pinGeom.clear();
+        flow.appendChild(pinLayerEl);
+      }
       return pinLayerEl;
     }
 
-    /** 钉住按钮放在 body 层：聊天流由 React 管理，行内子节点会被重渲染抹掉。 */
+    /** 钉住按钮统一用 document 捕获阶段代理：行/层可能被 React 重渲染替换，逐按钮监听会失效。 */
     let pinClickHooked = false;
 
-    /** 钉住按钮统一用 document 捕获阶段代理：行/层可能被 React 重渲染替换，逐按钮监听会失效。 */
     function hookPinClicks() {
       if (pinClickHooked) return;
       pinClickHooked = true;
@@ -689,54 +725,111 @@ window.__ModuleLoader__.load({
         const turn = btn.getAttribute('data-ac-for');
         if (!turn) return;
         try {
-          window.__acPinId = turn;
           togglePin(turn);
           apply();
-        } catch (e) { window.__acPinErr = (e && e.message) || String(e); }
+        } catch (e) { /* 静默：下一轮 schedule 会重试 */ }
       }, true);
     }
 
+    /**
+     * 位置：行文字末尾 + 2 字符，垂直居中于该行（折叠行取摘要文字末尾，展开行取气泡右缘）。
+     * 性能：几何按 (turn | 文本 | 行宽) 缓存，未变则既不读布局也不写样式；滚动不触发重算。
+     */
     function syncPins(flow, rendered) {
       hookPinClicks();
-      const layer = pinLayer();
-      let fr = flow.getBoundingClientRect();
-      if (!(fr.height > 10)) fr = { top: 0, bottom: window.innerHeight };
+      const layer = pinLayer(flow);
       const keep = new Set();
+      const lw = flow.clientWidth;
+      // 结构变化（日期头/分叉徽标插入、展开态切换、行数变化）会让整列行位置平移，
+      // 这里用一次廉价的形状快照判断，变了才整批重算；滚动时形状不变 => 零布局读取。
+      const shape = expandedId + '|' + flow.childElementCount + '|' +
+        flow.querySelectorAll('[' + DAY_ATTR + ']').length + '|' +
+        flow.querySelectorAll('.dsh-ac-fork').length;
+      if (shape !== pinShape) {
+        pinShape = shape;
+        pinGeom.clear();
+      }
       for (let i = 0; i < rendered.length; i += 1) {
         const user = rendered[i].user;
         const id = user.getAttribute('data-chat-turn');
         if (id === null) continue;
         keep.add(id);
-        if (CFG.pin !== true) continue;
-        const rect = user.getBoundingClientRect();
-        const visible = rect.width > 40 && rect.height > 0 && rect.bottom > fr.top + 1 && rect.top < fr.bottom - 1;
         let btn = pinBtns.get(id);
-        if (btn === undefined || !btn.isConnected) {
+        let fresh = false;
+        if (btn === undefined || !btn.isConnected || btn.parentNode !== layer) {
           btn = document.createElement('button');
           btn.type = 'button';
           btn.className = 'dsh-ac-pin';
           btn.setAttribute('data-ac-for', id);
           layer.appendChild(btn);
           pinBtns.set(id, btn);
+          fresh = true;
         }
-        btn.style.display = visible ? 'inline-flex' : 'none';
-        if (!visible) continue;
-        btn.style.left = Math.round(rect.right - 40) + 'px';
-        btn.style.top = Math.round(rect.top + rect.height / 2 - 10) + 'px';
+        if (CFG.pin !== true) {
+          btn.style.display = 'none';
+          continue;
+        }
         const on = pinned.has(id);
-        btn.textContent = on ? '📌' : '📍';
-        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        btn.setAttribute('data-ac-on', on ? '1' : '0');
+        const glyph = on ? '📌' : '📍';
+        if (btn.textContent !== glyph) btn.textContent = glyph;
+        const flag = on ? '1' : '0';
+        if (btn.getAttribute('data-ac-on') !== flag) {
+          btn.setAttribute('data-ac-on', flag);
+          btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
         const label = on ? t('unpin') : t('pin');
         if (btn.getAttribute('aria-label') !== label) {
           btn.setAttribute('aria-label', label);
           btn.setAttribute('title', label);
         }
+        const folded = user.getAttribute(LINE_ATTR) === '1';
+        const body = folded ? (user.getAttribute(TEXT_ATTR) || '') : '';
+        const key = folded
+          ? 'f|' + body + '|' + lw
+          : 'e|' + ((rendered[i].body || '').length) + '|' + lw;
+        const geom = pinGeom.get(id);
+        if (!fresh && geom !== undefined && geom.key === key) {
+          if (btn.style.display !== 'inline-flex') btn.style.display = 'inline-flex';
+          continue;
+        }
+        const row = user.getBoundingClientRect();
+        if (!(row.width > 60 && row.height > 0)) {
+          btn.style.display = 'none';
+          pinGeom.delete(id);
+          continue;
+        }
+        let endX = row.right;
+        let font = '';
+        if (folded) {
+          const cs = window.getComputedStyle(user, '::after');
+          font = fontOf(cs);
+          let tw = 0;
+          try {
+            const ctx = ctx2d();
+            ctx.font = font;
+            tw = ctx.measureText(body).width;
+          } catch (err) { tw = 0; }
+          endX = Math.min(row.left + 104 + tw, row.right - 62);
+        } else {
+          const bubble = user.querySelector('[class*="_bubble"]');
+          const box = bubble === null ? user : bubble;
+          endX = box.getBoundingClientRect().right;
+          font = fontOf(window.getComputedStyle(user));
+        }
+        const ch = chWidthOf(font);
+        const x = Math.min(endX + ch * 2, row.right - 34);
+        const y = row.top + row.height / 2;
+        const lr = layer.getBoundingClientRect();
+        btn.style.display = 'inline-flex';
+        btn.style.left = Math.round(x - lr.left) + 'px';
+        btn.style.top = Math.round(y - lr.top) + 'px';
+        pinGeom.set(id, { key, x, y });
       }
       pinBtns.forEach(function (btn, id) {
-        if (keep.has(id) && CFG.pin === true && btn.isConnected) return;
+        if (keep.has(id)) return;
         if (btn.parentNode !== null) btn.parentNode.removeChild(btn);
         pinBtns.delete(id);
+        pinGeom.delete(id);
       });
     }
 
@@ -1226,6 +1319,7 @@ window.__ModuleLoader__.load({
       } catch (err) {
         console.warn('[auto-collapse] observer unavailable', err);
       }
+      window.addEventListener('resize', schedule);
       timer = setInterval(schedule, 1500);
       setTimeout(schedule, 300);
       window.__acReport = report;

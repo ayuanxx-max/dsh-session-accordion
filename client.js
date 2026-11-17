@@ -26,6 +26,51 @@ window.__ModuleLoader__.load({
     const TEXT_ATTR = 'data-ac-text';
     const TIME_ATTR = 'data-ac-time';
     const FRESH_ATTR = 'data-ac-fresh';
+    const PIN_ATTR = 'data-ac-pinned';
+    const DAY_ATTR = 'data-ac-day';
+
+    /* ---- 3.0 基础：配置开关（每项特性都能单独关掉） ------------------- *
+     * localStorage['dsh-ac-config'] 或运行时 window.__acConfig({...})。
+     * 任何一项设 false，对应特性立即停止渲染，其余不受影响。            */
+    const CFG_KEY = 'dsh-ac-config';
+    const DEFAULTS = {
+      timeline: true, pin: true, search: true, forkchip: true, guard: true,
+      i18n: 'auto', theme: 'auto',
+    };
+    let CFG = Object.assign({}, DEFAULTS);
+    try {
+      const raw = window.localStorage.getItem(CFG_KEY);
+      if (raw) CFG = Object.assign(CFG, JSON.parse(raw));
+    } catch (err) {
+      /* 私密模式 / 无 localStorage：用默认值 */
+    }
+
+    const STRINGS = {
+      zh: {
+        pin: '钉住', unpin: '解除钉住', search: '搜索提问', searchHint: '输入关键词 · Enter 下一个 · Esc 关闭',
+        noMatch: '无匹配', today: '今天', yesterday: '昨天', earlier: '更早', preview: '点击展开',
+        fork: '分叉', turns: '轮', searchLabel: '按提问内容过滤折叠行', pinLabel: '把这一轮钉住，新消息不再折叠它',
+      },
+      en: {
+        pin: 'Pin', unpin: 'Unpin', search: 'Search prompts', searchHint: 'Type to filter · Enter next · Esc close',
+        noMatch: 'No match', today: 'Today', yesterday: 'Yesterday', earlier: 'Earlier', preview: 'Click to expand',
+        fork: 'Fork', turns: 'turns', searchLabel: 'Filter folded turns by prompt text', pinLabel: 'Pin this turn so new messages keep it open',
+      },
+    };
+
+    function lang() {
+      if (CFG.i18n === 'zh' || CFG.i18n === 'en') return CFG.i18n;
+      try {
+        return /^zh/i.test(window.navigator.language || '') ? 'zh' : 'en';
+      } catch (err) {
+        return 'zh';
+      }
+    }
+
+    function t(key) {
+      const dict = STRINGS[lang()] || STRINGS.zh;
+      return dict[key] !== undefined ? dict[key] : (STRINGS.zh[key] || key);
+    }
 
     const CHEVRON = 'url("data:image/svg+xml,' +
       '%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%2712%27%20height=%2712%27' +
@@ -84,15 +129,22 @@ window.__ModuleLoader__.load({
       (document.head || document.documentElement).appendChild(tag);
     }
 
+    /** 多面板（分屏/浮窗）时优先选「有可见行」的流，其次选条数最多的流。 */
     function findFlow() {
       const flows = document.querySelectorAll(FLOW_SEL);
       let best = null;
-      let bestCount = 0;
+      let bestScore = -1;
       for (let i = 0; i < flows.length; i++) {
-        const count = flows[i].querySelectorAll(ITEM_SEL).length;
-        if (count > bestCount) {
+        const rows = flows[i].querySelectorAll(ITEM_SEL);
+        let visible = 0;
+        const probe = Math.min(rows.length, 8);
+        for (let k = 0; k < probe; k += 1) {
+          if (rows[k].getClientRects().length > 0) visible += 1;
+        }
+        const score = visible * 1000 + rows.length;
+        if (score > bestScore) {
           best = flows[i];
-          bestCount = count;
+          bestScore = score;
         }
       }
       if (best !== null) return best;
@@ -467,6 +519,9 @@ window.__ModuleLoader__.load({
       toggle(row);
     }
 
+    /** 预览气泡的收尾（时间线特性里实现，未启用时为空操作）。 */
+    let hidePreview = function () {};
+
     function schedule() {
       if (pending) return;
       pending = true;
@@ -500,24 +555,62 @@ window.__ModuleLoader__.load({
       };
     }
 
+    let observer = null;
+    let timer = 0;
+    let disposed = false;
+
+    function stop() {
+      disposed = true;
+      started = false;
+      if (timer) {
+        clearInterval(timer);
+        timer = 0;
+      }
+      if (observer !== null) {
+        try {
+          observer.disconnect();
+        } catch (err) {
+          /* 已断开 */
+        }
+        observer = null;
+      }
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+      hidePreview();
+    }
+
     function start() {
       if (started) return;
       started = true;
+      disposed = false;
       ensureStyle();
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown, true);
       try {
-        new MutationObserver(schedule).observe(document.documentElement, {
-          childList: true,
-          subtree: true,
-        });
+        observer = new MutationObserver(schedule);
+        observer.observe(document.documentElement, { childList: true, subtree: true });
       } catch (err) {
         console.warn('[auto-collapse] observer unavailable', err);
       }
-      setInterval(schedule, 1500);
+      timer = setInterval(schedule, 1500);
       setTimeout(schedule, 300);
       window.__acReport = report;
-      window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock };
+      window.__acStop = stop;
+      window.__acStart = start;
+      window.__acConfig = function (next) {
+        if (next !== null && typeof next === 'object') {
+          CFG = Object.assign({}, CFG, next);
+          try {
+            window.localStorage.setItem(CFG_KEY, JSON.stringify(CFG));
+          } catch (err) {
+            /* 私密模式：只生效本次会话 */
+          }
+          ensureStyle();
+          schedule();
+        }
+        return Object.assign({}, CFG);
+      };
+      window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock, t: t };
       console.info('[auto-collapse] ready — window.__acReport() 查看结构诊断');
     }
 
@@ -532,6 +625,7 @@ window.__ModuleLoader__.load({
     const GUARD_MARK = '__acWithdrawGuard';
     const guardSubscribed = new WeakSet();
     const guardState = { installed: [], hits: 0, active: false };
+    let disposeHooked = false;
 
     function guardDefinition(kind, definition) {
       if (definition === null || typeof definition !== 'object') return false;
@@ -579,6 +673,7 @@ window.__ModuleLoader__.load({
     }
 
     function installWithdrawGuard(ctx) {
+      if (CFG.guard === false) return;
       try {
         let conversation = void 0;
         try {
@@ -635,6 +730,18 @@ window.__ModuleLoader__.load({
           start();
         } catch (err) {
           console.warn('[auto-collapse] start failed', err);
+        }
+        if (ctx !== null && ctx !== undefined && typeof ctx.effect === 'function' && !disposeHooked) {
+          disposeHooked = true;
+          try {
+            ctx.effect(function () {
+              return function () {
+                stop();
+              };
+            });
+          } catch (err) {
+            disposeHooked = false;
+          }
         }
         installWithdrawGuard(ctx);
       },

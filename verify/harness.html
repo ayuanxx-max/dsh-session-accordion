@@ -350,6 +350,48 @@ var checks = {
     var got = dbg.fmtTime(946684800000);
     return { ok: got === want, detail: { got: got, want: want } };
   },
+
+  configApi: function () {
+    var off = window.__acConfig({ guard: false });
+    var on = window.__acConfig({ guard: true });
+    return { ok: off.guard === false && on.guard === true, detail: { off: off.guard, on: on.guard } };
+  },
+  lifecycle: function () {
+    helpers.replaceSession(['l1', 'l2'], 'l ');
+    return wait(220).then(function () {
+      window.__acStop();
+      helpers.addTurn('l3', '停后新增');
+      return wait(260);
+    }).then(function () {
+      var gs = groups();
+      var stoppedHidden = isHidden(procOf(gs[gs.length - 1]));
+      window.__acStart();
+      return wait(280).then(function () {
+        var gs2 = groups();
+        var lastOpen = !isHidden(procOf(gs2[gs2.length - 1]));
+        var firstFolded = isHidden(procOf(gs2[0]));
+        return { ok: !stoppedHidden && lastOpen && firstFolded,
+                 detail: { stoppedHidden: stoppedHidden, lastOpen: lastOpen, firstFolded: firstFolded } };
+      });
+    });
+  },
+  multiFlow: function () {
+    var f2 = document.createElement('div');
+    f2.setAttribute('data-slot', 'conversation.chat.flow');
+    var html = '';
+    for (var i = 0; i < 12; i++) {
+      html += '<div data-chat-turn="m' + i + '"><div class="_bubble_h">次要 ' + i + '</div></div>';
+    }
+    f2.innerHTML = html;
+    document.body.appendChild(f2);
+    return wait(300).then(function () {
+      var rows = f2.querySelectorAll('[data-chat-turn]');
+      var folded = 0;
+      for (var i = 0; i < rows.length; i++) if (rows[i].getAttribute('data-ac-line') === '1') folded += 1;
+      f2.parentNode.removeChild(f2);
+      return { ok: folded === rows.length - 1, detail: { folded: folded, rows: rows.length } };
+    });
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&

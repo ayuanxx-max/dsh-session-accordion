@@ -1,0 +1,21 @@
+{
+  "name": "accordion-p0",
+  "checks": [
+    {
+      "name": "config-api",
+      "js": "window.__check.configApi()"
+    },
+    {
+      "name": "lifecycle-stop-start",
+      "js": "window.__check.lifecycle()"
+    },
+    {
+      "name": "multi-flow-select",
+      "js": "window.__check.multiFlow()"
+    },
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    }
+  ]
+}

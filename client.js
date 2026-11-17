@@ -27,6 +27,7 @@ window.__ModuleLoader__.load({
     const TIME_ATTR = 'data-ac-time';
     const FRESH_ATTR = 'data-ac-fresh';
     const PIN_ATTR = 'data-ac-pinned';
+    const PINBOX_ATTR = 'data-ac-pinbox';
     const DAY_ATTR = 'data-ac-day';
     const FILTER_ATTR = 'data-ac-filtered';
     const HIT_ATTR = 'data-ac-hit';
@@ -122,6 +123,10 @@ window.__ModuleLoader__.load({
         '  background-repeat:no-repeat;background-position:right 9px center;background-size:12px 12px;',
         '  background-image:' + CHEVRON + '}',
         '[' + LINE_ATTR + '="1"]>*{visibility:hidden!important}',
+
+        /* 📌 画在气泡内部：只在钉住特性开启时加左侧内缩，变量由 syncPins 按字号算 */
+        '[' + PINBOX_ATTR + '="1"] [' + USER_ATTR + '="1"] [class*="_bubble"]{',
+        '  padding-left:var(--dsh-ac-pinpad,0px)!important}',
 
         '[' + LINE_ATTR + '="1"]::before{content:attr(' + TIME_ATTR + ');position:absolute;',
         '  left:8px;top:50%;transform:translateY(-50%);width:86px;text-align:center;',
@@ -851,6 +856,24 @@ window.__ModuleLoader__.load({
         const hr = host.getBoundingClientRect();
         hTop = hr.top;
         hLeft = hr.left;
+      }
+      // 📌 落在气泡内部：给用户气泡补左侧内缩（位置公式不变，只是腾出空间）
+      let padCh = 0;
+      for (let i = rendered.length - 1; i >= 0; i -= 1) {
+        if (rendered[i].user.getAttribute(LINE_ATTR) === '1') continue;
+        const probe = rendered[i].user.querySelector('[class*="_bubble"]');
+        if (probe !== null) {
+          padCh = chWidthOf(fontOf(window.getComputedStyle(probe)));
+          break;
+        }
+      }
+      if (CFG.pin === true && padCh > 0) {
+        const pad = Math.round(PIN_HALF * 2 + padCh * 2 + 4) + 'px';
+        if (flow.getAttribute(PINBOX_ATTR) !== '1') flow.setAttribute(PINBOX_ATTR, '1');
+        if (flow.style.getPropertyValue('--dsh-ac-pinpad') !== pad) flow.style.setProperty('--dsh-ac-pinpad', pad);
+      } else if (flow.getAttribute(PINBOX_ATTR) !== null) {
+        flow.removeAttribute(PINBOX_ATTR);
+        flow.style.removeProperty('--dsh-ac-pinpad');
       }
       const keep = new Set();
       const plan = [];

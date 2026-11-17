@@ -513,9 +513,43 @@ var checks = {
       var gotX = br.left + br.width / 2;
       var gotY = br.top + br.height / 2;
       return {
-        ok: br.width > 0 && Math.abs(gotX - wantX) < 3 && Math.abs(gotY - ty) < 2,
+        ok: br.width > 0 && Math.abs(gotX - wantX) < 3 && Math.abs(gotY - ty) < 2 && br.left >= bubble.getBoundingClientRect().left,
+        inside: br.left - bubble.getBoundingClientRect().left,
         detail: { gotX: gotX, wantX: wantX, gotY: gotY, textY: ty, textX: tx, ch: ch, w: br.width, h: br.height, layer: btn.parentNode.tagName }
       };
+    });
+  },
+  pinContainment: function () {
+    helpers.seed(6, 2);
+    return wait(300).then(function () {
+    var gs = groups();
+    if (gs.length < 4) return { ok: false, detail: 'need >=4 turns' };
+    var mid = userOf(gs[Math.floor(gs.length / 2)]);
+    function sample() {
+      var bad = [];
+      var checked = 0;
+      var pins = document.querySelectorAll('.dsh-ac-pin');
+      for (var k = 0; k < pins.length; k += 1) {
+        var btn = pins[k];
+        if (btn.style.display === 'none') continue;
+        var id = btn.getAttribute('data-ac-for');
+        var u = document.querySelector('[data-chat-turn="' + id + '"][data-ac-user="1"]');
+        if (u === null || isHidden(u)) continue;
+        var folded = u.getAttribute('data-ac-line') === '1';
+        var boxEl = folded ? u : u.querySelector('[class*="_bubble"]');
+        if (boxEl === null) continue;
+        checked += 1;
+        var br = btn.getBoundingClientRect();
+        var bb = boxEl.getBoundingClientRect();
+        if (br.width === 0 || bb.width === 0) continue;
+        if (br.left < bb.left - 0.5 || br.right > bb.right + 0.5) bad.push(id + ':x ' + Math.round(br.left - bb.left));
+        if (folded && (br.top < bb.top - 0.5 || br.bottom > bb.bottom + 0.5)) bad.push(id + ':y');
+      }
+      return { ok: bad.length === 0 && checked > 0, detail: { checked: checked, bad: bad.slice(0, 6) } };
+    }
+    if (mid.getAttribute('data-ac-line') !== '1') return sample();
+    mid.click();
+    return wait(320).then(sample);
     });
   },
   pinScrollGeometry: function () {

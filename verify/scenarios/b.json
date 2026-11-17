@@ -20,6 +20,10 @@
     {
       "name": "pin-geometry-open",
       "js": "window.__check.pinGeometryOpen()"
+    },
+    {
+      "name": "pin-containment",
+      "js": "window.__check.pinContainment()"
     }
   ]
 }

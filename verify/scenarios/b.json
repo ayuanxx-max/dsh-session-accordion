@@ -1,0 +1,17 @@
+{
+  "name": "accordion-b",
+  "checks": [
+    {
+      "name": "pin-toggle-keeps-open",
+      "js": "window.__check.pinToggle()"
+    },
+    {
+      "name": "memory-restore",
+      "js": "window.__check.memoryRestore()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    }
+  ]
+}

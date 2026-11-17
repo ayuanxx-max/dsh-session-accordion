@@ -1,0 +1,21 @@
+{
+  "name": "accordion-a",
+  "checks": [
+    {
+      "name": "day-groups",
+      "js": "window.__check.dayGroups()"
+    },
+    {
+      "name": "hover-preview",
+      "js": "window.__check.hoverPreview()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    },
+    {
+      "name": "line-contract",
+      "js": "window.__check.lineContract()"
+    }
+  ]
+}

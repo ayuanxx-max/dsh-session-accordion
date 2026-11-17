@@ -1,0 +1,13 @@
+{
+  "name": "accordion-f",
+  "checks": [
+    {
+      "name": "incremental-skip",
+      "js": "window.__check.incrementalSkip()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    }
+  ]
+}

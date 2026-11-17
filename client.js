@@ -34,8 +34,8 @@ window.__ModuleLoader__.load({
      * 任何一项设 false，对应特性立即停止渲染，其余不受影响。            */
     const CFG_KEY = 'dsh-ac-config';
     const DEFAULTS = {
-      timeline: true, pin: true, search: true, forkchip: true, guard: true,
-      i18n: 'auto', theme: 'auto',
+      timeline: true, pin: true, memory: true, search: true, forkchip: true, guard: true,
+      incremental: true, i18n: 'auto', theme: 'auto',
     };
     let CFG = Object.assign({}, DEFAULTS);
     try {
@@ -86,6 +86,12 @@ window.__ModuleLoader__.load({
     let seenNodes = [];
 
     const textCache = new WeakMap();
+    /** 行级渲染状态：签名不变就整行跳过（F：增量渲染）。 */
+    const rowState = new WeakMap();
+    const lastRest = new WeakMap();
+    /** 时间戳按「元素 + 原生时钟文本」缓存，避免每帧沿 fiber 回溯。 */
+    const stampCache = new WeakMap();
+    const stats = { passes: 0, rows: 0, skipped: 0, writes: 0 };
     let pending = false;
     let started = false;
     let logged = false;
@@ -121,6 +127,24 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:hover::after{color:var(--dsw-alias-label-primary,#fff)}',
         '[' + LINE_ATTR + '="1"]:active{background-color:rgba(127,127,127,.18)}',
 
+        '[data-ac-user="1"]{position:relative}',
+        '.dsh-ac-pin{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:20px;height:20px;',
+        '  display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;',
+        '  font-size:11px;line-height:1;cursor:pointer;opacity:.42;background:transparent;',
+        '  color:inherit;transition:opacity .12s ease,background-color .12s ease}',
+        '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
+        '[data-ac-pinned="1"] .dsh-ac-pin{opacity:1}',
+        '.dsh-ac-day{position:sticky;top:0;z-index:3;margin:6px 0 2px;padding:2px 8px;',
+        '  font-size:11px;font-weight:600;letter-spacing:.04em;border-radius:6px;width:max-content;',
+        '  color:var(--dsw-alias-label-secondary,#c9c9c9);background:color-mix(in srgb,var(--dsw-alias-bg-base,#1e1e1e) 88%,transparent);',
+        '  backdrop-filter:blur(4px);pointer-events:none}',
+        '.dsh-ac-preview{position:fixed;z-index:9999;display:none;padding:8px 10px;border-radius:10px;',
+        '  font-size:12px;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.32);',
+        '  color:var(--dsw-alias-label-primary,#fff);background:var(--dsw-alias-bg-elevated,#2a2a2a);',
+        '  border:1px solid rgba(127,127,127,.28);pointer-events:none}',
+        '.dsh-ac-pv-head{font-size:11px;opacity:.7;margin-bottom:3px;font-variant-numeric:tabular-nums}',
+        '.dsh-ac-pv-body{white-space:pre-wrap;word-break:break-word;max-height:9em;overflow:hidden}',
+        '.dsh-ac-pv-hint{margin-top:4px;font-size:10px;opacity:.55}',
         '@keyframes dsh-ac-fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}',
         '[' + FRESH_ATTR + '="1"]{animation:dsh-ac-fade .16s ease-out}',
         '[' + LINE_ATTR + '="1"]::after{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}',
@@ -298,9 +322,13 @@ window.__ModuleLoader__.load({
     }
 
     function stampOf(user, bubble) {
-      const stamp = fmtTime(fiberTime(bubble !== null ? bubble : user));
-      if (stamp) return stamp;
-      return normalizeClock(clockText(user));
+      const clock = clockText(user);
+      const cached = stampCache.get(user);
+      if (cached !== undefined && cached.clock === clock) return cached.stamp;
+      const fromFiber = fmtTime(fiberTime(bubble !== null ? bubble : user));
+      const stamp = fromFiber || normalizeClock(clock);
+      stampCache.set(user, { clock, stamp });
+      return stamp;
     }
 
     function summaryOf(bubble, fallback) {
@@ -330,7 +358,242 @@ window.__ModuleLoader__.load({
     }
 
     function setAttr(el, name, value) {
-      if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+      if (el.getAttribute(name) === value) return;
+      stats.writes += 1;
+      el.setAttribute(name, value);
+    }
+
+    /* ---- B：会话记忆 + 钉住 ---------------------------------------------- */
+    const memStore = (function () {
+      const fallback = new Map();
+      function get(key) {
+        try {
+          return window.localStorage.getItem(key);
+        } catch (err) {
+          return fallback.has(key) ? fallback.get(key) : null;
+        }
+      }
+      function set(key, value) {
+        try {
+          window.localStorage.setItem(key, value);
+        } catch (err) {
+          fallback.set(key, value);
+        }
+      }
+      return { get, set };
+    }());
+
+    let pinned = new Set();
+    let memKey = '';
+    let savedState = '';
+
+    function sessionKey(flow) {
+      let title = '';
+      try {
+        const row = document.querySelector('[data-ft-session][aria-current="true"],[data-ft-session][data-active="true"]');
+        if (row !== null) title = (row.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      } catch (err) {
+        title = '';
+      }
+      const first = flow.querySelector('[data-chat-turn]');
+      const head = first !== null ? (first.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+      let path = '';
+      try {
+        path = window.location.pathname || '';
+      } catch (err) {
+        path = '';
+      }
+      const seed = title + '|' + head + '|' + path;
+      let hash = 5381;
+      for (let i = 0; i < seed.length; i += 1) hash = ((hash << 5) + hash + seed.charCodeAt(i)) | 0;
+      return 'ac:' + (hash >>> 0).toString(36);
+    }
+
+    function loadMem(key) {
+      memKey = key;
+      pinned = new Set();
+      savedState = '';
+      if (CFG.memory !== true) return null;
+      let data = null;
+      try {
+        const raw = memStore.get('dsh-ac-mem:' + key);
+        if (raw) data = JSON.parse(raw);
+      } catch (err) {
+        data = null;
+      }
+      if (data !== null && typeof data === 'object' && Array.isArray(data.pinned)) {
+        for (let i = 0; i < data.pinned.length; i += 1) pinned.add(String(data.pinned[i]));
+      }
+      return data;
+    }
+
+    function saveMem() {
+      if (CFG.memory !== true || !memKey) return;
+      const snapshot = JSON.stringify({ expanded: expandedId, pinned: Array.from(pinned) });
+      if (snapshot === savedState) return;
+      savedState = snapshot;
+      memStore.set('dsh-ac-mem:' + memKey, snapshot);
+    }
+
+    function isPinned(id) {
+      return CFG.pin === true && pinned.has(id);
+    }
+
+    function togglePin(id) {
+      if (CFG.pin !== true || !id) return;
+      if (pinned.has(id)) pinned.delete(id);
+      else pinned.add(id);
+      const rendered = document.querySelectorAll('[data-chat-turn="' + id + '"]');
+      for (let i = 0; i < rendered.length; i += 1) {
+        if (pinned.has(id)) rendered[i].setAttribute(PIN_ATTR, '1');
+        else rendered[i].removeAttribute(PIN_ATTR);
+      }
+      saveMem();
+      apply();
+    }
+
+    function ensurePinButton(user) {
+      if (CFG.pin !== true) {
+        const old = user.querySelector('.dsh-ac-pin');
+        if (old !== null) old.parentNode.removeChild(old);
+        return;
+      }
+      let btn = user.querySelector('.dsh-ac-pin');
+      if (btn === null) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'dsh-ac-pin';
+        user.appendChild(btn);
+      }
+      const id = user.getAttribute('data-chat-turn');
+      const on = pinned.has(id);
+      if (btn.getAttribute('aria-pressed') !== (on ? 'true' : 'false')) {
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.textContent = on ? '📌' : '📌';
+        btn.setAttribute('aria-label', on ? t('unpin') : t('pin'));
+        btn.setAttribute('title', on ? t('unpin') : t('pin'));
+      }
+    }
+
+    /* ---- A：时间线（日期分组吸头 / 连接线 / hover 预览） ------------------ */
+    let previewEl = null;
+    let previewFor = null;
+
+    function dayKeyOf(stamp) {
+      const m = /^(\d{2})-(\d{2}) /.exec(stamp || '');
+      return m === null ? 'u' : m[1] + '-' + m[2];
+    }
+
+    function dayLabel(key) {
+      if (key === 'u') return t('earlier');
+      const now = new Date();
+      const today = pad2(now.getMonth() + 1) + '-' + pad2(now.getDate());
+      const prev = new Date(now.getTime() - 86400000);
+      const yesterday = pad2(prev.getMonth() + 1) + '-' + pad2(prev.getDate());
+      if (key === today) return t('today');
+      if (key === yesterday) return t('yesterday');
+      return key;
+    }
+
+    /** 幂等：只在缺失/错位/文字过期时动 DOM，避免和 MutationObserver 互相触发。 */
+    function applyDays(flow, rendered) {
+      const existing = Array.prototype.slice.call(flow.querySelectorAll('[' + DAY_ATTR + ']'));
+      if (CFG.timeline !== true) {
+        for (let i = 0; i < existing.length; i += 1) existing[i].parentNode.removeChild(existing[i]);
+        return;
+      }
+      const desired = [];
+      let lastKey = null;
+      for (let i = 0; i < rendered.length; i += 1) {
+        const key = dayKeyOf(rendered[i].stamp);
+        if (key === lastKey) continue;
+        lastKey = key;
+        desired.push({ key, label: dayLabel(key), before: rendered[i].user });
+      }
+      const used = [];
+      for (let i = 0; i < desired.length; i += 1) {
+        const want = desired[i];
+        let node = null;
+        for (let j = 0; j < existing.length; j += 1) {
+          if (used.indexOf(existing[j]) >= 0) continue;
+          if (existing[j].getAttribute(DAY_ATTR) === want.key) {
+            node = existing[j];
+            break;
+          }
+        }
+        if (node === null) {
+          node = document.createElement('div');
+          node.className = 'dsh-ac-day';
+          node.setAttribute(DAY_ATTR, want.key);
+        }
+        used.push(node);
+        if (node.textContent !== want.label) node.textContent = want.label;
+        if (node.nextSibling !== want.before) flow.insertBefore(node, want.before);
+      }
+      for (let i = 0; i < existing.length; i += 1) {
+        if (used.indexOf(existing[i]) < 0 && existing[i].parentNode !== null) {
+          existing[i].parentNode.removeChild(existing[i]);
+        }
+      }
+    }
+
+    function ensurePreview() {
+      if (previewEl !== null && document.body.contains(previewEl)) return previewEl;
+      previewEl = document.createElement('div');
+      previewEl.id = 'dsh-ac-preview';
+      previewEl.className = 'dsh-ac-preview';
+      previewEl.setAttribute('role', 'tooltip');
+      document.body.appendChild(previewEl);
+      return previewEl;
+    }
+
+    function showPreview(row) {
+      if (CFG.timeline !== true) return;
+      const stamp = row.getAttribute(TIME_ATTR) || '';
+      const text = row.getAttribute(TEXT_ATTR) || '';
+      const el = ensurePreview();
+      el.textContent = '';
+      const head = document.createElement('div');
+      head.className = 'dsh-ac-pv-head';
+      head.textContent = stamp;
+      const body = document.createElement('div');
+      body.className = 'dsh-ac-pv-body';
+      body.textContent = text.length > 300 ? text.slice(0, 300) + '…' : text;
+      const hint = document.createElement('div');
+      hint.className = 'dsh-ac-pv-hint';
+      hint.textContent = t('preview');
+      el.appendChild(head);
+      el.appendChild(body);
+      el.appendChild(hint);
+      el.style.display = 'block';
+      const rect = row.getBoundingClientRect();
+      const h = el.offsetHeight;
+      el.style.left = Math.max(8, rect.left) + 'px';
+      el.style.top = Math.max(8, rect.top - h - 6) + 'px';
+      el.style.maxWidth = Math.max(240, Math.min(520, rect.width * 0.9)) + 'px';
+    }
+
+    function onOut(event) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest('[' + LINE_ATTR + '="1"]');
+      if (row === null) return;
+      const to = event.relatedTarget;
+      if (to instanceof Element && row.contains(to)) return;
+      hidePreview();
+    }
+
+    function onOver(event) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const row = target.closest('[' + LINE_ATTR + '="1"]');
+      if (row === null) {
+        hidePreview();
+        return;
+      }
+      if (previewFor === row) return;
+      previewFor = row;
+      showPreview(row);
     }
 
     function markFresh(el) {
@@ -438,41 +701,63 @@ window.__ModuleLoader__.load({
       }
       if (hiddenSince !== 0 && Date.now() - hiddenSince > 1500) resetState();
       hiddenSince = 0;
-      trackExpanded(flow, list);
+      const key = sessionKey(flow);
+      let restored = null;
+      if (key !== memKey) restored = loadMem(key);
+      const ids = trackExpanded(flow, list);
+      if (restored !== null && restored.expanded !== undefined && restored.expanded !== null &&
+          ids.indexOf(String(restored.expanded)) !== -1) {
+        expandedId = String(restored.expanded);
+      }
       if (!logged && list.length > 0) {
         logged = true;
         console.info('[auto-collapse] active: turns=' + list.length + ' expanded=' + expandedId);
       }
-      for (let i = 0; i < list.length; i++) {
+      stats.passes += 1;
+      stats.rows += list.length;
+      const rendered = [];
+      for (let i = 0; i < list.length; i += 1) {
         const group = list[i];
-        const expanded = group.id === expandedId;
+        const expanded = group.id === expandedId || isPinned(group.id);
         const parts = pick(group);
         const user = parts.user;
-        if (user !== null) {
-          setAttr(user, USER_ATTR, '1');
-          user.removeAttribute(HIDE_ATTR);
-          setAttr(user, 'role', 'button');
-          setAttr(user, 'tabindex', '0');
-          setAttr(user, 'aria-expanded', expanded ? 'true' : 'false');
-          if (expanded) {
-            user.removeAttribute(LINE_ATTR);
-            user.removeAttribute(TEXT_ATTR);
-            user.removeAttribute(TIME_ATTR);
-          } else {
-            const bubble = user.querySelector('[class*="_bubble"]');
-            setAttr(user, LINE_ATTR, '1');
-            const stamp = stampOf(user, bubble);
-            if (stamp) setAttr(user, TIME_ATTR, stamp);
-            else user.removeAttribute(TIME_ATTR);
-            const body = summaryOf(bubble, user);
-            setAttr(user, TEXT_ATTR, body || '（无正文）');
-          }
+        if (user === null) continue;
+        const bubble = user.querySelector('[class*="_bubble"]');
+        const stamp = stampOf(user, bubble);
+        const body = expanded ? '' : (summaryOf(bubble, user) || '（无正文）');
+        rendered.push({ user, stamp, body });
+        const sameRest = lastRest.get(user) === parts.rest[0];
+        const head = (expanded ? '1' : '0') + '|' + stamp + '|' + body + '|' + parts.rest.length;
+        if (CFG.incremental !== false && sameRest && rowState.get(user) === head + '|1') {
+          stats.skipped += 1;
+          continue;
         }
-        for (let j = 0; j < parts.rest.length; j++) {
+        lastRest.set(user, parts.rest[0]);
+        rowState.set(user, head + '|1');
+
+        setAttr(user, USER_ATTR, '1');
+        user.removeAttribute(HIDE_ATTR);
+        ensurePinButton(user);
+        setAttr(user, PIN_ATTR, isPinned(group.id) ? '1' : '0');
+        setAttr(user, 'role', 'button');
+        setAttr(user, 'tabindex', '0');
+        setAttr(user, 'aria-expanded', expanded ? 'true' : 'false');
+        if (expanded) {
+          user.removeAttribute(LINE_ATTR);
+          user.removeAttribute(TEXT_ATTR);
+          user.removeAttribute(TIME_ATTR);
+        } else {
+          setAttr(user, LINE_ATTR, '1');
+          if (stamp) setAttr(user, TIME_ATTR, stamp);
+          else user.removeAttribute(TIME_ATTR);
+          setAttr(user, TEXT_ATTR, body);
+        }
+        for (let j = 0; j < parts.rest.length; j += 1) {
           const el = parts.rest[j];
           if (expanded) {
             if (el.hasAttribute(HIDE_ATTR)) {
               el.removeAttribute(HIDE_ATTR);
+              stats.writes += 1;
               markFresh(el);
             }
           } else {
@@ -480,12 +765,15 @@ window.__ModuleLoader__.load({
           }
         }
       }
+      applyDays(flow, rendered);
+      saveMem();
       return list.length;
     }
 
     function toggle(el) {
       const id = el.getAttribute('data-chat-turn');
       if (!id) return;
+      if (isPinned(id)) return;
       expandedId = expandedId === id ? null : id;
       apply();
     }
@@ -493,6 +781,14 @@ window.__ModuleLoader__.load({
     function onClick(event) {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      const pinBtn = target.closest('.dsh-ac-pin');
+      if (pinBtn !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        const owner = pinBtn.closest('[data-chat-turn]');
+        if (owner !== null) togglePin(owner.getAttribute('data-chat-turn'));
+        return;
+      }
       if (target.closest('a,button') !== null) return;
       const line = target.closest('[' + LINE_ATTR + '="1"]');
       if (line !== null) {
@@ -519,8 +815,11 @@ window.__ModuleLoader__.load({
       toggle(row);
     }
 
-    /** 预览气泡的收尾（时间线特性里实现，未启用时为空操作）。 */
-    let hidePreview = function () {};
+    /** 预览气泡收尾（时间线特性关闭时为空操作）。 */
+    let hidePreview = function () {
+      if (previewEl !== null) previewEl.style.display = 'none';
+      previewFor = null;
+    };
 
     function schedule() {
       if (pending) return;
@@ -576,6 +875,8 @@ window.__ModuleLoader__.load({
       }
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('mouseover', onOver, true);
+      document.removeEventListener('mouseout', onOut, true);
       hidePreview();
     }
 
@@ -586,6 +887,8 @@ window.__ModuleLoader__.load({
       ensureStyle();
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown, true);
+      document.addEventListener('mouseover', onOver, true);
+      document.addEventListener('mouseout', onOut, true);
       try {
         observer = new MutationObserver(schedule);
         observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -610,7 +913,7 @@ window.__ModuleLoader__.load({
         }
         return Object.assign({}, CFG);
       };
-      window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock, t: t };
+      window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock, t: t, stats: stats, apply: apply, rowState: rowState };
       console.info('[auto-collapse] ready — window.__acReport() 查看结构诊断');
     }
 

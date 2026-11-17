@@ -14,8 +14,8 @@
       "js": "window.__check.multiFlow()"
     },
     {
-      "name": "only-newest-expanded",
-      "js": "window.__check.onlyNewestExpanded()"
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
     }
   ]
 }

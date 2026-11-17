@@ -392,6 +392,121 @@ var checks = {
       return { ok: folded === rows.length - 1, detail: { folded: folded, rows: rows.length } };
     });
   },
+
+  incrementalSkip: function () {
+    helpers.replaceSession(['i1', 'i2', 'i3', 'i4'], 'i ');
+    return wait(400).then(function () {
+      var st = window.__acDebug && window.__acDebug.stats;
+      if (!st) return { ok: false, detail: 'no stats' };
+      var before = st.skipped;
+      return wait(1700).then(function () {
+        return { ok: st.skipped > before && st.passes > 1,
+                 detail: { skippedBefore: before, skippedAfter: st.skipped, passes: st.passes, writes: st.writes } };
+      });
+    });
+  },
+
+  dbg2: function () {
+    helpers.replaceSession(['i1', 'i2', 'i3', 'i4'], 'i ');
+    return wait(420).then(function () {
+      var d = window.__acDebug, s0 = d.stats.skipped;
+      d.apply();
+      var s1 = d.stats.skipped;
+      return wait(1700).then(function () {
+        return { ok: true, detail: { manualSkip: s1 - s0, intervalSkip: d.stats.skipped - s1, passes: d.stats.passes, writes: d.stats.writes } };
+      });
+    });
+  },
+
+  dayGroups: function () {
+    helpers.replaceSession([], '');
+    helpers.addTurn('d1', '第一天早', '2026-11-01 10:00');
+    helpers.addTurn('d2', '第一天晚', '2026-11-01 18:20');
+    helpers.addTurn('d3', '第二天早', '2026-11-02 09:05');
+    helpers.addTurn('d4', '第二天晚', '2026-11-02 20:00');
+    return wait(300).then(function () {
+      var days = document.querySelectorAll('[data-ac-day]');
+      var labels = [];
+      for (var i = 0; i < days.length; i++) labels.push(days[i].textContent);
+      var ok = days.length === 2 && labels[0].indexOf('11-01') >= 0 && labels[1].indexOf('11-02') >= 0;
+      return { ok: ok, detail: { count: days.length, labels: labels } };
+    });
+  },
+  hoverPreview: function () {
+    var gs = groups();
+    var row = userOf(gs[0]);
+    row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    return wait(120).then(function () {
+      var el = document.getElementById('dsh-ac-preview');
+      var shown = el !== null && el.style.display === 'block';
+      var text = el === null ? '' : el.textContent;
+      row.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      return wait(80).then(function () {
+        var hidden = document.getElementById('dsh-ac-preview');
+        return { ok: shown && text.length > 0 && (hidden === null || hidden.style.display === 'none'),
+                 detail: { shown: shown, text: text.slice(0, 40), hiddenAfter: hidden === null || hidden.style.display === 'none' } };
+      });
+    });
+  },
+
+  pinToggle: function () {
+    helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
+    return wait(280).then(function () {
+      var gs = groups();
+      var btn = userOf(gs[0]).querySelector('.dsh-ac-pin');
+      if (btn === null) return { ok: false, detail: 'no pin button' };
+      btn.click();
+      return wait(220).then(function () {
+        var g2 = groups();
+        var open = !isHidden(procOf(g2[0]));
+        var pinned = userOf(g2[0]).getAttribute('data-ac-pinned');
+        helpers.addTurn('q4', '新增一轮');
+        return wait(260).then(function () {
+          var g3 = groups();
+          var stillOpen = !isHidden(procOf(g3[0]));
+          var threeFolded = isHidden(procOf(g3[2]));
+          var btn2 = userOf(g3[0]).querySelector('.dsh-ac-pin');
+          btn2.click();
+          return wait(240).then(function () {
+            var g4 = groups();
+            var foldedAfter = isHidden(procOf(g4[0]));
+            return { ok: open && pinned === '1' && stillOpen && threeFolded && foldedAfter,
+                     detail: { open: open, pinned: pinned, stillOpen: stillOpen, threeFolded: threeFolded, foldedAfter: foldedAfter } };
+          });
+        });
+      });
+    });
+  },
+  memoryRestore: function () {
+    helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
+    return wait(280).then(function () {
+      var gs = groups();
+      var btn = userOf(gs[0]).querySelector('.dsh-ac-pin');
+      if (btn === null) return { ok: false, detail: 'no pin button' };
+      btn.click();
+      return wait(220).then(function () {
+        helpers.replaceSession(['r1', 'r2'], 'r ');
+        return wait(260).then(function () {
+          helpers.replaceSession(['q1', 'q2', 'q3'], 'q ');
+          return wait(320).then(function () {
+            var g = groups();
+            var restored = !isHidden(procOf(g[0]));
+            var pin = userOf(g[0]).getAttribute('data-ac-pinned');
+            return { ok: restored && pin === '1', detail: { restored: restored, pin: pin } };
+          });
+        });
+      });
+    });
+  },
+
+  onlyNewestFresh: function () {
+    helpers.replaceSession(['n1', 'n2', 'n3'], 'n ');
+    return wait(300).then(function () {
+      var gs = groups(), open = [];
+      for (var i = 0; i < gs.length; i++) if (!isHidden(procOf(gs[i]))) open.push(gs[i].id);
+      return { ok: open.length === 1 && open[0] === 'n3', detail: { open: open, turns: gs.length } };
+    });
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&

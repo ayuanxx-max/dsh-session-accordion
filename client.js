@@ -108,6 +108,8 @@ window.__ModuleLoader__.load({
     let disjointSince = 0;
     /** 用户手动把唯一展开的那条也收起来了：此后只有新轮/换会话才会自动展开。 */
     let userFolded = false;
+    /** 上一趟看到的会话 key（侧栏稳定 id / 标题指纹），用来给“真换会话”再加一道锁。 */
+    let lastTrackKey = '';
 
     const textCache = new WeakMap();
     /** 行级渲染状态：签名不变就整行跳过（F：增量渲染）。 */
@@ -183,6 +185,7 @@ window.__ModuleLoader__.load({
         + ' NOVIS=' + c.noVis
         + ' PV=' + c.pv + '/' + c.pvSupp + ' day+=' + c.daysAdd + '-' + c.daysDel
         + ' dh=' + c.hChange + ' H=' + c.hWhole + ' flip=' + c.flip
+
         + '\n' + (DBG.probe || '') + '\n' + DBG.lines.join('\n')
 
     }
@@ -1433,7 +1436,24 @@ window.__ModuleLoader__.load({
       }
       // 120ms ≈ 两帧：容器闪空在这一层已经被“0 行直接返回”挡住，整批重建也会带着旧 id 回来，
       // 只有真的换了会话才会持续“完全不交集”。
-      const realSwitch = disjoint && Date.now() - disjointSince >= 120;
+      // 再加一条：**必须停在底部**才算换会话。真换会话会落到底部的新最新一条；
+      // 而“往上滚 + 加载更早”会让虚拟窗口整体换一批 id（看起来完全不交集），
+      // 这时绝不能再改展开目标 —— 那就是“滚上去突然打开别的会话 / 滚动条跳”。
+      let awayNow = 0;
+      try {
+        const sc = chatScrollerFor(flowRef) || scrollWatchedHost;
+        if (sc !== null && sc.isConnected) {
+          awayNow = Math.max(0, sc.scrollHeight - sc.scrollTop - sc.clientHeight);
+        }
+      } catch (err) { awayNow = 0; }
+      // 最后一道锁：会话 key 真的变了才算换会话。
+      // “加载更早”会把虚拟窗口整批换成另一批 id（看起来完全不交集、而且此刻可能正贴着底部），
+      // 光靠结构判据分不开它和换会话；key 没变就一律当成同一会话内的窗口移动。
+      const keyNow = sessionIdOf() || '';
+      const keyMoved = keyNow !== '' && lastTrackKey !== '' && keyNow !== lastTrackKey;
+      lastTrackKey = keyNow;
+      const realSwitch = disjoint && Date.now() - disjointSince >= 120 && awayNow <= 48 &&
+        (keyNow === '' || keyMoved);
       switchedNow = false;
       if (realSwitch) {
         // 真的换了会话（两次列表完全不交集）：回到“只展开最新一条”
@@ -1516,16 +1536,15 @@ window.__ModuleLoader__.load({
     }
 
     function applyInner(force) {
-      if (force !== true && Date.now() < scrollQuietUntil) {
-        // 滚动中：推迟“会改布局”的部分（日期头/折叠切换会把视口顶得上下跳），
-        // 但钉住图标是绝对定位的覆盖层，跟着滚一下不影响任何行的位置，这里照常刷新，
-        // 否则图标会在滚动途中“掉队”，滚完才归位。
+      // 滚动中：折叠/展开必须照做 —— 推迟只会让“新挂载的行先以全高画出来、下一帧才折”，
+      // 流式输出每秒重渲染多次时高度就一涨一缩，右侧滚动条于是来回跳。
+      // 只推迟“插/删日期头”这类成批改高度的动作，滚停后再补。
+      const quietNow = force !== true && Date.now() < scrollQuietUntil;
+      if (quietNow) {
         try {
           if (lastPinFlow !== null && lastPinFlow.isConnected) syncPins(lastPinFlow, lastPinRows);
         } catch (err) { /* 覆盖层刷新失败不影响主流程 */ }
-        const wait = Math.min(400, scrollQuietUntil - Date.now() + 40);
-        window.setTimeout(schedule, wait);
-        return 0;
+        window.setTimeout(schedule, Math.min(400, scrollQuietUntil - Date.now() + 40));
       }
       ensureStyle();
       const flow = findFlow();
@@ -1680,7 +1699,7 @@ window.__ModuleLoader__.load({
       const layoutSig = layoutSignature(rendered, pinnedIds);
       const layoutSame = layoutSig === lastLayoutSig;
       lastLayoutSig = layoutSig;
-      if (!layoutSame) applyDays(flow, rendered);
+      if (!layoutSame && !quietNow) applyDays(flow, rendered);
       const daysAfter = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
       const hAfter = flow.scrollHeight;
       if (daysAfter > daysBefore) DBG.counters.daysAdd += daysAfter - daysBefore;
@@ -1871,6 +1890,7 @@ window.__ModuleLoader__.load({
     }
     let timer = 0;
     let disposed = false;
+    let lastSyncApply = 0;
 
     function stop() {
       disposed = true;
@@ -1907,7 +1927,19 @@ window.__ModuleLoader__.load({
       try {
         observer = new MutationObserver(function (records) {
           DBG.counters.mut += 1;
-          if (mutationMatters(records)) schedule();
+          if (!mutationMatters(records)) return;
+          // 同步跑一次折叠（MutationObserver 回调是微任务，早于本帧绘制）：
+          // 新挂载的过程行在这一帧就是折叠态，不会出现“先全高、后收缩”的高度抖动。
+          if (applyDepth > 0) { schedule(); return; }
+          const now = Date.now();
+          if (now - lastSyncApply < 12) { schedule(); return; }
+          lastSyncApply = now;
+          try {
+            apply();
+          } catch (err) {
+            console.warn('[auto-collapse] sync apply failed', err);
+            schedule();
+          }
         });
         observer.observe(document.documentElement, { childList: true, subtree: true });
       } catch (err) {

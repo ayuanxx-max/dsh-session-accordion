@@ -52,11 +52,13 @@ window.__ModuleLoader__.load({
         pin: '钉住', unpin: '解除钉住', search: '搜索提问', searchHint: '输入关键词 · Enter 下一个 · Esc 关闭',
         noMatch: '无匹配', today: '今天', yesterday: '昨天', earlier: '更早', preview: '点击展开',
         fork: '分叉', turns: '轮', searchLabel: '按提问内容过滤折叠行', pinLabel: '把这一轮钉住，新消息不再折叠它',
+        expand: '已展开', collapse: '已收起', turn: '第', turnUnit: '轮',
       },
       en: {
         pin: 'Pin', unpin: 'Unpin', search: 'Search prompts', searchHint: 'Type to filter · Enter next · Esc close',
         noMatch: 'No match', today: 'Today', yesterday: 'Yesterday', earlier: 'Earlier', preview: 'Click to expand',
         fork: 'Fork', turns: 'turns', searchLabel: 'Filter folded turns by prompt text', pinLabel: 'Pin this turn so new messages keep it open',
+        expand: 'expanded', collapse: 'collapsed', turn: 'turn', turnUnit: '',
       },
     };
 
@@ -97,6 +99,16 @@ window.__ModuleLoader__.load({
     let pending = false;
     let started = false;
     let logged = false;
+
+    function applyTheme() {
+      try {
+        const root = document.documentElement;
+        if (CFG.theme === 'light' || CFG.theme === 'dark') root.setAttribute('data-ac-theme', CFG.theme);
+        else root.removeAttribute('data-ac-theme');
+      } catch (err) {
+        /* 主题只影响观感 */
+      }
+    }
 
     function ensureStyle() {
       if (document.getElementById(STYLE_ID) !== null) return;
@@ -146,6 +158,11 @@ window.__ModuleLoader__.load({
         '  color:inherit;transition:opacity .12s ease,background-color .12s ease}',
         '.dsh-ac-pin:hover{opacity:1;background:rgba(127,127,127,.18)}',
         '[data-ac-pinned="1"] .dsh-ac-pin{opacity:1}',
+        '.dsh-ac-live{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}',
+        '[data-ac-theme="light"] .dsh-ac-preview{box-shadow:0 8px 24px rgba(0,0,0,.14);border-color:rgba(0,0,0,.12)}',
+        '[data-ac-theme="light"] .dsh-ac-day{background:color-mix(in srgb,var(--dsw-alias-bg-base,#fff) 90%,transparent);color:#555}',
+        '[data-ac-theme="light"] .dsh-ac-fork{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.12);color:#444}',
+        '@media (prefers-color-scheme:light){.dsh-ac-preview{box-shadow:0 8px 24px rgba(0,0,0,.14);border-color:rgba(0,0,0,.12)}}',
         '.dsh-ac-fork{display:inline-flex;align-items:center;gap:6px;margin:2px 6px 6px;padding:2px 9px;',
         '  font-size:11px;border-radius:999px;width:max-content;cursor:pointer;',
         '  color:var(--dsw-alias-label-secondary,#c9c9c9);background:rgba(127,127,127,.14);',
@@ -417,6 +434,50 @@ window.__ModuleLoader__.load({
       if (flow.firstChild !== chip) flow.insertBefore(chip, flow.firstChild);
     }
 
+    /* ---- G：无障碍播报 / 键盘导航 / 主题 ---------------------------------- */
+    function ensureLive() {
+      let live = document.getElementById('dsh-ac-live');
+      if (live !== null) return live;
+      live = document.createElement('div');
+      live.id = 'dsh-ac-live';
+      live.className = 'dsh-ac-live';
+      live.setAttribute('role', 'status');
+      live.setAttribute('aria-live', 'polite');
+      document.body.appendChild(live);
+      return live;
+    }
+
+    function announce(text) {
+      try {
+        const live = ensureLive();
+        live.textContent = '';
+        live.textContent = text;
+      } catch (err) {
+        /* 播报失败不影响功能 */
+      }
+    }
+
+    function userRows() {
+      return Array.prototype.slice.call(document.querySelectorAll('[data-ac-user="1"]'));
+    }
+
+    function navigate(delta) {
+      const rows = userRows();
+      if (rows.length === 0) return;
+      let index = -1;
+      const active = document.activeElement;
+      for (let i = 0; i < rows.length; i += 1) {
+        if (rows[i] === active || rows[i].contains(active)) {
+          index = i;
+          break;
+        }
+      }
+      const next = index < 0 ? (delta > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, index + delta));
+      const row = rows[next];
+      row.focus();
+      if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+    }
+
     /* ---- C：搜索过滤 ------------------------------------------------------ */
     let query = '';
     let searchOpen = false;
@@ -509,6 +570,7 @@ window.__ModuleLoader__.load({
     }());
 
     let pinned = new Set();
+    let sigGen = 0;
     let memKey = '';
     let savedState = '';
 
@@ -592,11 +654,13 @@ window.__ModuleLoader__.load({
       }
       const id = user.getAttribute('data-chat-turn');
       const on = pinned.has(id);
-      if (btn.getAttribute('aria-pressed') !== (on ? 'true' : 'false')) {
-        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-        btn.textContent = on ? '📌' : '📌';
-        btn.setAttribute('aria-label', on ? t('unpin') : t('pin'));
-        btn.setAttribute('title', on ? t('unpin') : t('pin'));
+      const pressed = on ? 'true' : 'false';
+      if (btn.getAttribute('aria-pressed') !== pressed) btn.setAttribute('aria-pressed', pressed);
+      btn.textContent = '📌';
+      const label = on ? t('unpin') : t('pin');
+      if (btn.getAttribute('aria-label') !== label) {
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('title', label);
       }
     }
 
@@ -873,7 +937,7 @@ window.__ModuleLoader__.load({
           user.removeAttribute(HIT_ATTR);
         }
         const sameRest = lastRest.get(user) === parts.rest[0];
-        const head = (expanded ? '1' : '0') + '|' + stamp + '|' + body + '|' + parts.rest.length;
+        const head = (expanded ? '1' : '0') + '|' + stamp + '|' + body + '|' + parts.rest.length + '|' + sigGen;
         if (CFG.incremental !== false && sameRest && rowState.get(user) === head + '|1') {
           stats.skipped += 1;
           continue;
@@ -888,6 +952,9 @@ window.__ModuleLoader__.load({
         setAttr(user, 'role', 'button');
         setAttr(user, 'tabindex', '0');
         setAttr(user, 'aria-expanded', expanded ? 'true' : 'false');
+        const rowLabel = (t('turn') === '第' ? '第 ' + (i + 1) + ' 轮' : 'turn ' + (i + 1)) +
+          (stamp ? ' · ' + stamp : '') + (body ? ' · ' + body.slice(0, 60) : '');
+        setAttr(user, 'aria-label', rowLabel);
         if (expanded) {
           user.removeAttribute(LINE_ATTR);
           user.removeAttribute(TEXT_ATTR);
@@ -937,6 +1004,7 @@ window.__ModuleLoader__.load({
       if (isPinned(id)) return;
       expandedId = expandedId === id ? null : id;
       apply();
+      announce((expandedId === id ? t('expand') : t('collapse')) + ' · ' + id);
     }
 
     function onClick(event) {
@@ -975,6 +1043,20 @@ window.__ModuleLoader__.load({
       if (key === 'Escape' && searchOpen) {
         event.preventDefault();
         closeSearch();
+        return;
+      }
+      const el = event.target instanceof Element ? event.target : null;
+      const typing = el !== null && (el.closest('input,textarea,select,[contenteditable="true"]') !== null);
+      if (!typing && (key === 'j' || key === 'k')) {
+        event.preventDefault();
+        navigate(key === 'j' ? 1 : -1);
+        return;
+      }
+      if (!typing && key === 'Escape') {
+        event.preventDefault();
+        expandedId = null;
+        apply();
+        announce(t('collapse'));
         return;
       }
       if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return;
@@ -1057,6 +1139,7 @@ window.__ModuleLoader__.load({
       started = true;
       disposed = false;
       ensureStyle();
+      applyTheme();
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown, true);
       document.addEventListener('mouseover', onOver, true);
@@ -1075,16 +1158,23 @@ window.__ModuleLoader__.load({
       window.__acConfig = function (next) {
         if (next !== null && typeof next === 'object') {
           CFG = Object.assign({}, CFG, next);
+          sigGen += 1;
           try {
             window.localStorage.setItem(CFG_KEY, JSON.stringify(CFG));
           } catch (err) {
             /* 私密模式：只生效本次会话 */
           }
           ensureStyle();
-          schedule();
+          applyTheme();
+          try {
+            apply();
+          } catch (err) {
+            schedule();
+          }
         }
         return Object.assign({}, CFG);
       };
+      window.__acAnnounce = announce;
       window.__acSearch = function (open) {
         if (open === true) openSearch();
         else if (open === false) closeSearch();

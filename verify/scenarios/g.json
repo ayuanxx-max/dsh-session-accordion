@@ -1,0 +1,17 @@
+{
+  "name": "accordion-g",
+  "checks": [
+    {
+      "name": "a11y-i18n-theme",
+      "js": "window.__check.a11yAndI18n()"
+    },
+    {
+      "name": "keyboard-j-esc",
+      "js": "window.__check.keyboardEsc()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    }
+  ]
+}

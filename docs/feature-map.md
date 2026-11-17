@@ -27,12 +27,17 @@
 
 **插件写入的属性**
 
-`data-ac-hidden` `data-ac-line` `data-ac-user` `data-ac-text` `data-ac-time` `data-ac-fresh` `data-chat-turn` `data-chat-flow-kind`
+`data-ac-hidden` `data-ac-line` `data-ac-user` `data-ac-text` `data-ac-time` `data-ac-fresh` `data-ac-pinned` `data-ac-day` `data-ac-filtered` `data-ac-hit` `data-ac-theme` `data-chat-turn` `data-chat-flow-kind` `data-active` `data-ft-depth`
 
 **页面全局（脚本可直接读）**
 
 - `__dshAccordion`
 - `__acReport`
+- `__acStop`
+- `__acStart`
+- `__acConfig`
+- `__acAnnounce`
+- `__acSearch`
 - `__acDebug`
 - `__acWithdrawGuard`
 
@@ -63,7 +68,14 @@
 
 | 场景 | 文件 | 步骤 | 断言 | 帧预算 |
 | --- | --- | --- | --- | --- |
+| `accordion-a` | `verify/scenarios/a.json` | 0 | day-groups, hover-preview, only-newest-fresh, line-contract | - |
+| `accordion-b` | `verify/scenarios/b.json` | 0 | pin-toggle-keeps-open, memory-restore, only-newest-fresh | - |
 | `accordion-basic` | `verify/scenarios/basic.json` | 1 | no-harness-errors, guard-installed, line-contract, only-newest-expanded, click-toggle, new-turn-folds-previous, report-api | - |
+| `accordion-c` | `verify/scenarios/c.json` | 0 | search-filter, only-newest-fresh | - |
+| `accordion-e` | `verify/scenarios/e.json` | 0 | fork-chip, only-newest-fresh | - |
+| `accordion-f` | `verify/scenarios/f.json` | 0 | incremental-skip, only-newest-fresh | - |
+| `accordion-g` | `verify/scenarios/g.json` | 0 | a11y-i18n-theme, keyboard-j-esc, only-newest-fresh | - |
+| `accordion-p0` | `verify/scenarios/p0.json` | 0 | config-api, lifecycle-stop-start, multi-flow-select, only-newest-fresh | - |
 | `accordion-regression` | `verify/scenarios/regression.json` | 0 | same-length-summary, session-switch-colliding-ids, stamp-from-native-clock, keyboard-toggle, fmt-old-ms | - |
 | `scroll-jank` | `verify/scenarios/scroll-jank.json` | 3 | only-newest-expanded, line-contract | {"maxWorstFrameMs": 250, "maxLongTaskWorstMs": 250} |
 | `stream-storm` | `verify/scenarios/stream-storm.json` | 3 | line-contract, only-newest-expanded, no-harness-errors | {"maxWorstFrameMs": 250, "maxLongTaskWorstMs": 250} |

@@ -2,6 +2,54 @@
 
 All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
 
+## 3.0.0-draft（本地，未发布）— 六大特性 + 三处残留修复
+
+> 未执行 `发布 x.x.x` 口令，本段只记录本地改动；版本号仍是 2.5.9，发布时再 bump。
+
+### 四、残留问题（先修）
+- **dispose**：`ctx.effect` 注册清理，卸载/热重载时清 interval、MutationObserver、三个 document 监听与预览气泡。
+- **多面板选流**：`findFlow()` 改为「有可见行优先，其次条数最多」，分屏/浮窗不再选错聊天流。
+- **内核兜底可关**：`guard` 开关可禁用 withdraw 补丁，异常仍只 warn，结构认不出就不动作。
+
+### A 时间线
+- 日期分组吸头（今天 / 昨天 / MM-DD），跨天自动分段；只有时分的旧轮归入「更早」，不编造日期。
+- 折叠行左侧竖向连接线，hover 出预览气泡（时间 + 首段正文 + 「点击展开」）。
+
+### B 会话记忆 + 钉住
+- 点击行尾 📌 钉住：新消息到达时该轮保持展开；再点一次解除。
+- 每个会话记住展开项与钉住项（`localStorage['dsh-ac-mem:<会话键>']`），切回来恢复；会话键 = 侧边栏标题 + 首轮文本哈希。
+
+### C 搜索过滤
+- `Ctrl/Cmd+Shift+F` 打开搜索条，只过滤折叠行；`Enter` 跳到下一个命中并展开，`Esc` 还原。
+
+### E fork-tree 联动
+- 当前会话是分叉时，聊天流顶部显示 `↳ 分叉 · L<深度> · <标题>` 徽标；点击不干扰树形侧栏。
+
+### F 稳定性
+- 行级增量渲染：签名不变整行跳过，`__acDebug.stats` 可查 passes/rows/skipped/writes。
+- 时间戳按「元素 + 原生时钟文本」缓存，避免每帧沿 fiber 回溯。
+
+### G 主题 / 无障碍 / 双语
+- 中文/英文界面文案（`i18n: auto|zh|en`）；折叠行 `aria-label`、`aria-expanded`、钉住按钮 `aria-pressed`。
+- `j`/`k` 上下移动焦点、`Esc` 全部收起、`aria-live` 播报展开/收起。
+- 浅色主题（系统深浅色 + `theme: light|dark` 强制）。
+
+### 一键回滚（任一特性都能单独关掉，不影响其余）
+`localStorage['dsh-ac-config'] = {"timeline":false}` 或运行时 `__acConfig({timeline:false})`；
+恢复默认 `__acConfig({timeline:true})`，彻底重置 `localStorage.removeItem('dsh-ac-config')`。
+
+| 特性 | 开关 | 关闭后 |
+| --- | --- | --- |
+| 时间线/预览 | `timeline` | 无日期分组与预览气泡，折叠行为不变 |
+| 钉住 | `pin` | 隐藏 📌 按钮，已钉住的轮次按普通轮次折叠 |
+| 会话记忆 | `memory` | 不再读写 localStorage，每次打开只展开最新 |
+| 搜索 | `search` | 快捷键不响应，无搜索条 |
+| 分叉徽标 | `forkchip` | 不显示顶部徽标 |
+| 增量渲染 | `incremental` | 每帧重写全部行（旧行为，性能略降） |
+| 内核兜底 | `guard` | 不装 withdraw 补丁 |
+| 主题 | `theme` | `light`/`dark` 强制，`auto` 跟随系统 |
+| 文案 | `i18n` | `zh`/`en` 强制，`auto` 跟随浏览器 |
+
 ## Unreleased — 代码复核（2026-11-03 之后）
 
 - 折叠行摘要缓存改为按原文比对：同一轮文本等长替换（流式/编辑）不再残留旧摘要。

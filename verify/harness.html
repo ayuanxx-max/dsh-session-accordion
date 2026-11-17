@@ -550,6 +550,43 @@ var checks = {
       });
     });
   },
+
+  a11yAndI18n: function () {
+    helpers.replaceSession(['g1', 'g2', 'g3'], 'g ');
+    return wait(320).then(function () {
+      var gs = groups();
+      var row = userOf(gs[0]);
+      var label = row.getAttribute('aria-label') || '';
+      var btn = row.querySelector('.dsh-ac-pin');
+      window.__acConfig({ i18n: 'en' });
+      var en = btn === null ? '' : btn.getAttribute('aria-label');
+      window.__acConfig({ i18n: 'zh' });
+      window.__acConfig({ theme: 'light' });
+      var theme = document.documentElement.getAttribute('data-ac-theme');
+      window.__acConfig({ theme: 'auto' });
+      var zh = btn === null ? '' : btn.getAttribute('aria-label');
+      return { ok: label.length > 3 && en === 'Pin' && zh === '钉住' && theme === 'light',
+               detail: { label: label, en: en, zh: zh, theme: theme } };
+    });
+  },
+  keyboardEsc: function () {
+    helpers.replaceSession(['g1', 'g2', 'g3'], 'g ');
+    return wait(320).then(function () {
+      var gs = groups();
+      var first = userOf(gs[0]);
+      first.focus();
+      first.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }));
+      var movedTo = document.activeElement === userOf(gs[1]);
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return wait(260).then(function () {
+        var g = groups(), open = 0;
+        for (var i = 0; i < g.length; i++) if (!isHidden(procOf(g[i]))) open += 1;
+        var live = document.getElementById('dsh-ac-live');
+        return { ok: movedTo && open === 0 && live !== null && live.textContent.length > 0,
+                 detail: { movedTo: movedTo, open: open, live: live === null ? '' : live.textContent } };
+      });
+    });
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&

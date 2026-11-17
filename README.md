@@ -377,3 +377,26 @@ Pick the former if you want to skim every answer at once; pick this one if you w
 ### License
 
 MIT, see [LICENSE](LICENSE).
+
+## 3.0 特性与开关（本地草稿）
+
+时间线日期分组 / 钉住与记忆 / 提问搜索 / 分叉徽标 / 增量渲染 / 双语与无障碍，均为独立开关：
+
+```js
+// 运行时（立即生效，写入 localStorage）
+__acConfig({ timeline: false });   // 关时间线
+__acConfig({ pin: false });        // 关钉住
+__acConfig({ memory: false });     // 关会话记忆
+__acConfig({ search: false });     // 关搜索
+__acConfig({ forkchip: false });   // 关分叉徽标
+__acConfig({ incremental: false });// 关增量渲染
+__acConfig({ i18n: 'en' });        // 强制英文
+__acConfig({ theme: 'light' });    // 强制浅色
+localStorage.removeItem('dsh-ac-config'); // 全部恢复默认
+```
+
+自检（11 个场景，含 3.0 新增 a/b/c/e/f/g/p0）：
+
+```powershell
+python "%USERPROFILE%\.dsh\tools\verify-page.py" --root . --page verify/harness.html --scenario verify/scenarios/b.json --out reports/b
+```

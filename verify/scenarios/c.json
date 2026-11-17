@@ -1,0 +1,13 @@
+{
+  "name": "accordion-c",
+  "checks": [
+    {
+      "name": "search-filter",
+      "js": "window.__check.searchFilter()"
+    },
+    {
+      "name": "only-newest-fresh",
+      "js": "window.__check.onlyNewestFresh()"
+    }
+  ]
+}

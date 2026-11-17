@@ -28,6 +28,8 @@ window.__ModuleLoader__.load({
     const FRESH_ATTR = 'data-ac-fresh';
     const PIN_ATTR = 'data-ac-pinned';
     const DAY_ATTR = 'data-ac-day';
+    const FILTER_ATTR = 'data-ac-filtered';
+    const HIT_ATTR = 'data-ac-hit';
 
     /* ---- 3.0 基础：配置开关（每项特性都能单独关掉） ------------------- *
      * localStorage['dsh-ac-config'] 或运行时 window.__acConfig({...})。
@@ -127,6 +129,16 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:hover::after{color:var(--dsw-alias-label-primary,#fff)}',
         '[' + LINE_ATTR + '="1"]:active{background-color:rgba(127,127,127,.18)}',
 
+        '.dsh-ac-search{position:fixed;right:18px;top:14px;z-index:9998;display:none;align-items:center;gap:6px;',
+        '  padding:5px 8px;border-radius:10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.28);',
+        '  background:var(--dsw-alias-bg-elevated,#2a2a2a);border:1px solid rgba(127,127,127,.3);',
+        '  color:var(--dsw-alias-label-primary,#fff)}',
+        '.dsh-ac-search .dsh-ac-q{width:190px;border:0;outline:0;background:transparent;color:inherit;font-size:12px}',
+        '.dsh-ac-search .dsh-ac-count{font-size:11px;opacity:.65;font-variant-numeric:tabular-nums;min-width:2.2em;text-align:center}',
+        '.dsh-ac-search .dsh-ac-close{border:0;background:transparent;color:inherit;cursor:pointer;font-size:14px;line-height:1;opacity:.6;padding:0 2px}',
+        '.dsh-ac-search .dsh-ac-close:hover{opacity:1}',
+        '[' + FILTER_ATTR + '="1"]{display:none!important}',
+        '[' + HIT_ATTR + '="1"]{box-shadow:inset 0 0 0 1px rgba(255,196,0,.55)}',
         '[data-ac-user="1"]{position:relative}',
         '.dsh-ac-pin{position:absolute;right:2px;top:50%;transform:translateY(-50%);width:20px;height:20px;',
         '  display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:6px;',
@@ -363,6 +375,77 @@ window.__ModuleLoader__.load({
       el.setAttribute(name, value);
     }
 
+    /* ---- C：搜索过滤 ------------------------------------------------------ */
+    let query = '';
+    let searchOpen = false;
+    let matches = [];
+    let matchIdx = 0;
+
+    function ensureSearch() {
+      let box = document.getElementById('dsh-ac-search');
+      if (box !== null) return box;
+      box = document.createElement('div');
+      box.id = 'dsh-ac-search';
+      box.className = 'dsh-ac-search';
+      box.innerHTML =
+        '<input type="search" class="dsh-ac-q" autocomplete="off" spellcheck="false" />' +
+        '<span class="dsh-ac-count"></span>' +
+        '<button type="button" class="dsh-ac-close" aria-label="Close">×</button>';
+      document.body.appendChild(box);
+      const input = box.querySelector('.dsh-ac-q');
+      input.setAttribute('aria-label', t('searchLabel'));
+      input.addEventListener('input', function () {
+        query = String(input.value || '');
+        matchIdx = 0;
+        schedule();
+      });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          focusMatch();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closeSearch();
+        }
+        event.stopPropagation();
+      });
+      box.querySelector('.dsh-ac-close').addEventListener('click', closeSearch);
+      return box;
+    }
+
+    function openSearch() {
+      if (CFG.search !== true) return;
+      const box = ensureSearch();
+      box.style.display = 'flex';
+      searchOpen = true;
+      const input = box.querySelector('.dsh-ac-q');
+      input.placeholder = t('search');
+      if (document.activeElement !== input) input.focus();
+      schedule();
+    }
+
+    function closeSearch() {
+      const box = document.getElementById('dsh-ac-search');
+      searchOpen = false;
+      query = '';
+      if (box !== null) {
+        box.style.display = 'none';
+        box.querySelector('.dsh-ac-q').value = '';
+        box.querySelector('.dsh-ac-count').textContent = '';
+      }
+      schedule();
+    }
+
+    function focusMatch() {
+      if (matches.length === 0) return;
+      const id = matches[matchIdx % matches.length];
+      matchIdx = (matchIdx + 1) % matches.length;
+      expandedId = id;
+      apply();
+      const row = document.querySelector('[data-chat-turn="' + id + '"]');
+      if (row !== null && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' });
+    }
+
     /* ---- B：会话记忆 + 钉住 ---------------------------------------------- */
     const memStore = (function () {
       const fallback = new Map();
@@ -529,6 +612,14 @@ window.__ModuleLoader__.load({
         used.push(node);
         if (node.textContent !== want.label) node.textContent = want.label;
         if (node.nextSibling !== want.before) flow.insertBefore(node, want.before);
+        let visible = 0;
+        for (let sib = node.nextSibling; sib !== null; sib = sib.nextSibling) {
+          if (sib.nodeType === 1 && sib.hasAttribute(DAY_ATTR)) break;
+          if (sib.nodeType !== 1) continue;
+          if (sib.getAttribute(FILTER_ATTR) === '1') continue;
+          visible += 1;
+        }
+        node.style.display = visible === 0 ? 'none' : '';
       }
       for (let i = 0; i < existing.length; i += 1) {
         if (used.indexOf(existing[i]) < 0 && existing[i].parentNode !== null) {
@@ -726,6 +817,19 @@ window.__ModuleLoader__.load({
         const stamp = stampOf(user, bubble);
         const body = expanded ? '' : (summaryOf(bubble, user) || '（无正文）');
         rendered.push({ user, stamp, body });
+        const matched = query !== '' && !expanded && body.toLowerCase().indexOf(query.toLowerCase()) !== -1;
+        if (query !== '' && !expanded) {
+          setAttr(user, FILTER_ATTR, matched ? '0' : '1');
+          if (matched) {
+            setAttr(user, HIT_ATTR, '1');
+            if (matches.indexOf(group.id) < 0) matches.push(group.id);
+          } else {
+            user.removeAttribute(HIT_ATTR);
+          }
+        } else {
+          user.removeAttribute(FILTER_ATTR);
+          user.removeAttribute(HIT_ATTR);
+        }
         const sameRest = lastRest.get(user) === parts.rest[0];
         const head = (expanded ? '1' : '0') + '|' + stamp + '|' + body + '|' + parts.rest.length;
         if (CFG.incremental !== false && sameRest && rowState.get(user) === head + '|1') {
@@ -764,6 +868,20 @@ window.__ModuleLoader__.load({
             setAttr(el, HIDE_ATTR, '1');
           }
         }
+      }
+      if (query !== '') {
+        const keep = [];
+        for (let i = 0; i < rendered.length; i += 1) {
+          const id = rendered[i].user.getAttribute('data-chat-turn');
+          if (matches.indexOf(id) >= 0) keep.push(id);
+        }
+        matches = keep;
+      } else {
+        matches = [];
+      }
+      const countEl = document.querySelector('#dsh-ac-search .dsh-ac-count');
+      if (countEl !== null) {
+        countEl.textContent = query === '' ? '' : (matches.length === 0 ? t('noMatch') : (Math.min(matchIdx, matches.length - 1) + 1) + '/' + matches.length);
       }
       applyDays(flow, rendered);
       saveMem();
@@ -805,6 +923,17 @@ window.__ModuleLoader__.load({
 
     function onKeyDown(event) {
       const key = event.key;
+      if (CFG.search === true && key !== undefined && (event.ctrlKey || event.metaKey) && event.shiftKey && String(key).toLowerCase() === 'f') {
+        event.preventDefault();
+        if (searchOpen) closeSearch();
+        else openSearch();
+        return;
+      }
+      if (key === 'Escape' && searchOpen) {
+        event.preventDefault();
+        closeSearch();
+        return;
+      }
       if (key !== 'Enter' && key !== ' ' && key !== 'Spacebar') return;
       const target = event.target;
       if (!(target instanceof Element)) return;
@@ -912,6 +1041,11 @@ window.__ModuleLoader__.load({
           schedule();
         }
         return Object.assign({}, CFG);
+      };
+      window.__acSearch = function (open) {
+        if (open === true) openSearch();
+        else if (open === false) closeSearch();
+        return { open: searchOpen, query };
       };
       window.__acDebug = { fmtTime: fmtTime, normalizeClock: normalizeClock, t: t, stats: stats, apply: apply, rowState: rowState };
       console.info('[auto-collapse] ready — window.__acReport() 查看结构诊断');

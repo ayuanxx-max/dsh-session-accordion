@@ -507,6 +507,31 @@ var checks = {
       return { ok: open.length === 1 && open[0] === 'n3', detail: { open: open, turns: gs.length } };
     });
   },
+
+  searchFilter: function () {
+    helpers.replaceSession([], '');
+    helpers.addTurn('s1', 'alpha 记录');
+    helpers.addTurn('s2', 'beta 记录');
+    helpers.addTurn('s3', 'gamma 记录');
+    helpers.addTurn('s4', 'delta 记录');
+    return wait(320).then(function () {
+      window.__acSearch(true);
+      var input = document.querySelector('#dsh-ac-search .dsh-ac-q');
+      input.value = 'gamma';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return wait(320).then(function () {
+        var hidden = document.querySelectorAll('[data-ac-filtered="1"]').length;
+        var hit = document.querySelectorAll('[data-ac-hit="1"]').length;
+        var count = document.querySelector('#dsh-ac-search .dsh-ac-count').textContent;
+        window.__acSearch(false);
+        return wait(300).then(function () {
+          var restored = document.querySelectorAll('[data-ac-filtered="1"]').length;
+          return { ok: hidden === 2 && hit === 1 && count === '1/1' && restored === 0,
+                   detail: { hidden: hidden, hit: hit, count: count, restored: restored } };
+        });
+      });
+    });
+  },
   guardInstalled: function () {
     var g = window.__acWithdrawGuard;
     var ok = !!g && g.active === true &&

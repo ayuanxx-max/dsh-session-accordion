@@ -21,7 +21,7 @@
 
 ### 本次更新功能清单（中文）
 
-1. **折叠更彻底**：每一轮对话压成一行（时间胶囊 `MM-DD HH:mm` + 提问摘要），只保留最新一轮展开。
+1. **折叠粒度**：每一轮对话压成一行（时间胶囊 `MM-DD HH:mm` + 提问摘要），只保留最新一轮展开。
 2. **点开即用**：点折叠行展开该轮（其他自动折回），再点收回；新轮次到达或切换会话，回到「只有最新一轮展开」。
 3. **📌 钉住**：钉住的那一轮永远不折；钉住/展开状态按会话记忆，重新打开该会话自动恢复。
 4. **🔍 搜索常驻按钮**：**默认不打开**，点图标才开；按钮悬在发送箭头正上方，搜索框开在它**左侧**，不遮发送区。
@@ -224,7 +224,7 @@ mkdir -p "$HOME/.dsh/profiles/$profile/node_modules"
 ln -sfn "$repo" "$HOME/.dsh/profiles/$profile/node_modules/dsh-session-accordion"
 ```
 
-> **符号链接必须是绝对路径**：相对路径在 profile 目录变化后会失效。
+> **符号链接要写完整路径**（从盘符或 `/` 开始，如 `E:\...`、`/home/...`）：相对路径在 profile 目录变化后会失效。
 > 也可以一条命令完成（含 package.json 备份与合并）：`bash scripts/install.sh --profile web --apply`。
 > Windows 对应：`powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Profile desktop -Apply`。
 

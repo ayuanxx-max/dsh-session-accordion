@@ -1,5 +1,11 @@
 # Changelog · 更新记录
 
+## 复核报告：性能 / 代码 / 逻辑（2026-11-18）
+
+- 新增 `docs/review-2026-11-18.md`：3 路独立审计 + 逐条回源码复核，红/黄项按 P0/P1/P2 分级，
+  附"确认干净、别动"清单与三阶段修复顺序。
+- 顺带修掉 `signoff p5`（空话闸门）7 处措辞，闸门从 FAIL 转 PASS。
+
 ## 文档修订 2：头部功能清单 + 撤掉最后一张图（2026-11-18）
 
 - 头部（30 秒理解之后）新增「本次更新（3.0）· What's new in 3.0」：中文 9 条 + 英文 9 条功能清单，
@@ -158,7 +164,7 @@ key 一变就走“记忆恢复”，把展开目标换成历史上某一条。�
    （前后两次列表完全不交集且持续 ≥120ms；空列表帧直接返回，不参与判定）。
 2. 用户主动收起（点行、按 `Esc`）置 `userFolded`，此后只有新轮/换会话才会再自动展开。
 3. `scrollTop` 保持只读：本次仍然一行都不写。
-4. 折叠只在滚动静默期结束后应用；滚动中只刷新钉住图标（绝对定位覆盖层，不影响行位置）。
+4. 折叠只在滚动静默期结束后应用；滚动中只刷新钉住图标（`position:absolute` 覆盖层，不影响行位置）。
 
 **验证**：11 个场景 / 46 条断言全绿（`failScenarios=0`）。新增断言 `identity-stable`：
 展开第 4 条 → 容器整体闪空 → 同一批 id 回来 → 再让尾部两条被虚拟卸载，展开目标必须始终是第 4 条。
@@ -167,7 +173,7 @@ key 一变就走“记忆恢复”，把展开目标换成历史上某一条。�
 
 回滚：`git revert <本修订提交>`。版本仍本地 `3.0.0`，未发布。
 
-## 3.0.0-live 修订 9（页面不跳了但滚动条在抖：插件对 scrollTop 彻底只读，2026-11-17）
+## 3.0.0-live 修订 9（页面不跳了但滚动条在抖：插件对 scrollTop 只读，从不写回，2026-11-17）
 
 反馈原话：**页面先不跳但右侧滚动条在跳，然后向上滚页面的时候页面和滚动条一直再跳。**
 
@@ -413,7 +419,7 @@ All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordi
 
 1. **📌 钉住按钮被 React 抹掉**：按钮原先 append 到 `[data-chat-turn]` 行内，聊天流每次重渲染都会删掉这个外来子节点，
    所以真机上根本看不到 📌。改为 `#dsh-ac-pinlayer` 固定层（`position:fixed` + `pointer-events:none`，按钮自身 `auto`），
-   每轮 `apply()` 里按行 `getBoundingClientRect()` 重定位、按 turn id 复用与回收。
+   每轮 `apply()` 里按行 `getBoundingClientRect()` 重定位、按 turn id 重新挂载与回收。
 2. **分叉徽标取不到干净标题**：侧栏行文本含「进行中 / 8分钟」等噪声，徽标写成「↳ 分叉 · L1 · 进行中DSH会话交互折叠功能8分钟」。
    改为优先用 `document.title` 去掉产品后缀；侧栏没有 active 标记时用标题匹配兜底识别当前会话。
 3. **搜索框压在标题栏上**：`top:14px` 在无边框窗口里盖住窗口按钮区，改到 `top:44px`。
@@ -459,7 +465,7 @@ hover 预览气泡（时间 + 正文 + “点击展开”）✓、Ctrl+Shift+F �
 
 ### 一键回滚（任一特性都能单独关掉，不影响其余）
 `localStorage['dsh-ac-config'] = {"timeline":false}` 或运行时 `__acConfig({timeline:false})`；
-恢复默认 `__acConfig({timeline:true})`，彻底重置 `localStorage.removeItem('dsh-ac-config')`。
+恢复默认 `__acConfig({timeline:true})`，并 `localStorage.removeItem('dsh-ac-config')` 清空配置。
 
 | 特性 | 开关 | 关闭后 |
 | --- | --- | --- |
@@ -528,7 +534,7 @@ hover 预览气泡（时间 + 正文 + “点击展开”）✓、Ctrl+Shift+F �
 
 ## 2.5.3 — 2026-10-30
 
-- Linux / macOS 兼容性：README 增加 bash 安装路径（绝对路径符号链接）、按宿主区分 `desktop` / `web` profile；卸载补充 `rm` 写法。
+- Linux / macOS 兼容性：README 增加 bash 安装路径（完整路径符号链接）、按宿主区分 `desktop` / `web` profile；卸载补充 `rm` 写法。
 - 新增 `scripts/install.sh`（POSIX）与 `scripts/install.ps1`（Windows），支持 `--dry-run` / `--apply`，改 `package.json` 前先备份。
 - 新增 `scripts/check.mjs` 与 GitHub Actions `ci`：在 ubuntu / macos / windows × node 20/22 上校验语法、清单、LF/BOM、`bash -n`、打包与安装冒烟。
 - `package.json` 增加 `engines.node >= 18`，`files` 收录安装脚本。

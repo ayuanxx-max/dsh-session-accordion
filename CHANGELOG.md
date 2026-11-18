@@ -1,5 +1,13 @@
 # Changelog · 更新记录
 
+## 文档修订 2：头部功能清单 + 撤掉最后一张图（2026-11-18）
+
+- 头部（30 秒理解之后）新增「本次更新（3.0）· What's new in 3.0」：中文 9 条 + 英文 9 条功能清单，
+  详细操作说明仍留在正文的中文「功能与使用」与英文「Features and usage」。
+- 撤掉头部最后一张图 `docs/images/session-management.svg`（文件保留在仓库，README 不再内嵌），
+  至此 README 全文 0 张动图 0 张内嵌图，只剩徽章。
+- GitHub Release v3.0.0 正文同步换成同一份功能清单。
+
 ## 文档修订：README 用中英双语说明替代演示 GIF（2026-11-18）
 
 - 删掉 `docs/images/demo-accordion.gif`（1.26 MB）与 `docs/images/demo-forktree.gif`（1.47 MB），

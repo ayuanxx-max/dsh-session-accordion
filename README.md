@@ -10,9 +10,49 @@
 >
 > 兼容 DSH Desktop / Web；安装见下方「安装」，卸载见「卸载」。
 
-![会话管理示意](docs/images/session-management.svg)
-
 📖 **[会话管理指南（折叠 + 分叉树组合用法）](docs/session-management-guide.md)** · [Guide](docs/session-management-guide.md)
+
+---
+
+## 本次更新（3.0）· What's new in 3.0
+
+> 下面是本次更新的功能清单，**详细操作说明在正文里**：中文见 [功能与使用](#功能与使用)，English see
+> [Features and usage](#features-and-usage)。
+
+### 本次更新功能清单（中文）
+
+1. **折叠更彻底**：每一轮对话压成一行（时间胶囊 `MM-DD HH:mm` + 提问摘要），只保留最新一轮展开。
+2. **点开即用**：点折叠行展开该轮（其他自动折回），再点收回；新轮次到达或切换会话，回到「只有最新一轮展开」。
+3. **📌 钉住**：钉住的那一轮永远不折；钉住/展开状态按会话记忆，重新打开该会话自动恢复。
+4. **🔍 搜索常驻按钮**：**默认不打开**，点图标才开；按钮悬在发送箭头正上方，搜索框开在它**左侧**，不遮发送区。
+   输入即过滤折叠行，`Enter` 跳下一个命中，`Esc` 关闭并完整还原。
+5. **三态配色**：折叠＝灰底＋次要色文字；展开＝无底色；钉住＝左侧强调色条＋淡蓝底＋高亮 `📌`，一眼分辨。
+6. **时间线**：按天插入日期吸头（`今天` / `昨天` / `MM-DD`），鼠标停在折叠行上出提问预览气泡。
+7. **分叉徽标**：分叉会话顶部显示 `↳ 分叉 · L<深度> · <来源标题>`。
+8. **流式与滚动不卡**：只对**新增轮次行**同步折叠，增量 delta 走 `requestAnimationFrame` 节流，
+   钉住几何量测滚动中限流 90ms、滚停后校正；插件**从不写 `scrollTop`**。
+9. **可关、可测、双语**：8 个独立开关（`__acConfig({...})` 或 `localStorage['dsh-ac-config']`）、
+   `aria-*` 无障碍与 `j`/`k` 导航、中英文案随界面语言切换。
+
+### What's new in 3.0 (English)
+
+1. **One line per turn**: every turn folds into a single row (time pill `MM-DD HH:mm` + question summary);
+   only the newest turn stays expanded.
+2. **Click to open**: clicking a folded row expands it (the previously open one folds back); clicking again
+   folds it. A new turn or a session switch resets to "only the newest turn expanded".
+3. **📌 Pin**: a pinned turn never folds; pin/expand state is remembered per session and restored on reopen.
+4. **🔍 Always-available search button**: **closed by default** — click the icon to open. The button sits
+   directly above the send arrow and the search box opens to its **left**, so the composer is never covered.
+   Typing filters folded rows live, `Enter` jumps to the next match, `Esc` closes and restores the list.
+5. **Three distinct states**: folded = grey chip + secondary text; expanded = plain; pinned = accent bar on the
+   left + light blue tint + lit `📌`.
+6. **Timeline**: day headers (`Today` / `Yesterday` / `MM-DD`) and a hover preview bubble with that turn's question.
+7. **Fork badge**: forked sessions show `↳ Fork · L<depth> · <origin title>` at the top.
+8. **No streaming/scroll jank**: only **newly added rows** are folded synchronously, streaming deltas are
+   throttled through `requestAnimationFrame`, pin geometry is measured at most once per 90ms while scrolling;
+   the plugin **never writes `scrollTop`**.
+9. **Switchable, testable, bilingual**: eight independent switches (`__acConfig({...})` or
+   `localStorage['dsh-ac-config']`), `aria-*` labels with `j`/`k` navigation, and copy that follows the UI language.
 
 ---
 

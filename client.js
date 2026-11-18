@@ -659,11 +659,42 @@ window.__ModuleLoader__.load({
       return box;
     }
 
+    /* 搜索入口只属于「有轮次行的会话页」：首页 / 新建对话页 / 设置页没有会话流，不给入口。 */
+    function sessionHasTurns() {
+      let host = null;
+      try {
+        host = findFlow();
+      } catch (err) {
+        return false;
+      }
+      if (host === null || host.isConnected !== true) return false;
+      try {
+        return host.querySelector('[data-chat-turn]') !== null;
+      } catch (err) {
+        return false;
+      }
+    }
+
+    let sendBtnCache = null;
+
+    function measureSend(el) {
+      if (el === null || el.isConnected !== true) return null;
+      const r = el.getBoundingClientRect();
+      if (r.width < 18 || r.width > 64 || r.height < 18 || r.height > 64) return null;
+      if (r.top < window.innerHeight * 0.6) return null;
+      return r;
+    }
+
     function findSendButton() {
+      // 记住上一趟选中的箭头：每趟只量它一个，不再全量扫 button（真有上百个）
+      const cached = measureSend(sendBtnCache);
+      if (cached !== null) return cached;
+      sendBtnCache = null;
       const all = document.querySelectorAll('button');
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       let best = null;
+      let bestEl = null;
       for (let i = 0; i < all.length; i += 1) {
         const b = all[i];
         if (b.id === 'dsh-ac-find') continue;
@@ -671,16 +702,27 @@ window.__ModuleLoader__.load({
         if (r.width < 18 || r.width > 64 || r.height < 18 || r.height > 64) continue;
         if (r.top < vh * 0.6) continue;
         if (vw - r.right > 150) continue;
-        if (best === null || r.right > best.right + 1 || (Math.abs(r.right - best.right) <= 1 && r.top > best.top)) best = r;
+        if (best === null || r.right > best.right + 1 || (Math.abs(r.right - best.right) <= 1 && r.top > best.top)) {
+          best = r;
+          bestEl = b;
+        }
       }
+      sendBtnCache = bestEl;
       return best;
     }
 
-    // 一次测量，写 CSS 变量；不参与逐帧路径。
+    let lastFindGeom = '';
+
+    // 一次测量，写 CSS 变量；不参与逐帧路径。几何没变就一次都不写。
+    // 位置语义：与发送箭头同一行，贴在它左边 8px；搜索框在按钮左边展开，全程不移动。
     function placeFind() {
       const root = document.documentElement.style;
       const r = findSendButton();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
       if (r === null) {
+        if (lastFindGeom === 'd') return;
+        lastFindGeom = 'd';
         root.setProperty('--ac-find-right', '26px');
         root.setProperty('--ac-find-bottom', '150px');
         root.setProperty('--ac-find-size', '28px');
@@ -688,21 +730,51 @@ window.__ModuleLoader__.load({
         root.setProperty('--ac-q-bottom', '150px');
         return;
       }
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const size = Math.round(Math.min(34, Math.max(22, r.width)));
-      const right = Math.round(vw - r.right);
-      const bottom = Math.round(vh - r.top + 8);
+      const size = Math.round(Math.min(34, Math.max(22, r.height - 4)));
+      const center = r.top + r.height / 2;
+      let right = Math.round(vw - r.left + 8);
+      // 真实输入框在发送箭头左边可能还有别的按钮（语音/附件/停止）：撞上就向左让开，
+      // 少一次重叠比多一次查询划算，而且只在几何真变时才扫。
+      for (let guard = 0; guard < 3; guard += 1) {
+        const slotRight = vw - right;
+        const slotLeft = slotRight - size;
+        let shift = 0;
+        const btns = document.querySelectorAll('button');
+        for (let i = 0; i < btns.length; i += 1) {
+          const other = btns[i];
+          if (other === sendBtnCache || other.id === 'dsh-ac-find') continue;
+          const br = other.getBoundingClientRect();
+          if (br.width < 12 || br.height < 12) continue;
+          if (Math.abs(br.top + br.height / 2 - center) > size) continue;
+          if (br.right <= slotLeft + 1 || br.left >= slotRight - 1) continue;
+          shift = Math.round(slotRight - br.left) + 6;
+          break;
+        }
+        if (shift <= 0) break;
+        right += shift;
+      }
+      const bottom = Math.round(vh - center - size / 2);
+      const qBottom = Math.round(vh - center - 15);
+      const geom = [Math.round(r.left), Math.round(r.top), size, right, bottom, qBottom].join('|');
+      if (geom === lastFindGeom) return;
+      lastFindGeom = geom;
       root.setProperty('--ac-find-right', right + 'px');
       root.setProperty('--ac-find-bottom', bottom + 'px');
       root.setProperty('--ac-find-size', size + 'px');
-      root.setProperty('--ac-q-right', (right + size + 10) + 'px');
-      root.setProperty('--ac-q-bottom', bottom + 'px');
+      root.setProperty('--ac-q-right', (right + size + 8) + 'px');
+      root.setProperty('--ac-q-bottom', qBottom + 'px');
     }
 
     function ensureFindButton() {
       let btn = document.getElementById('dsh-ac-find');
-      if (CFG.search !== true) {
+      if (CFG.search !== true || sessionHasTurns() !== true) {
+        if (searchOpen) {
+          // 会话流没了（回首页 / 换到空会话）：搜索框一起收掉，别浮在非会话页上
+          searchOpen = false;
+          query = '';
+          const stale = document.getElementById('dsh-ac-search');
+          if (stale !== null) stale.style.display = 'none';
+        }
         if (btn !== null) btn.remove();
         // 关掉搜索就把定位变量一起收掉，别在根元素上留 5 个废值
         try {
@@ -713,6 +785,8 @@ window.__ModuleLoader__.load({
           root.removeProperty('--ac-q-right');
           root.removeProperty('--ac-q-bottom');
         } catch (err) { /* 拿不到根样式就跳过 */ }
+        lastFindGeom = '';
+        sendBtnCache = null;
         return null;
       }
       if (btn === null) {
@@ -1668,7 +1742,10 @@ window.__ModuleLoader__.load({
       if (!started || disposed) return 0;
       applyDepth += 1;
       try {
-        return applyInner(force);
+        const n = applyInner(force);
+        // 入口按钮的状态跟着会话页走：几何没变 placeFind 一次都不写，换了页面就立刻收掉
+        ensureFindButton();
+        return n;
       } finally {
         applyDepth -= 1;
       }
@@ -2287,6 +2364,8 @@ window.__ModuleLoader__.load({
       lastPinRows = null;
       lastPinSig = '';
       lastIdleSig = '';
+      lastFindGeom = '';
+      sendBtnCache = null;
       clearRowCaches();
     }
 

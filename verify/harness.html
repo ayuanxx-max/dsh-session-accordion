@@ -13,12 +13,20 @@
   ._bubble_h{padding:4px 6px}
   ._timeStart_h{color:#999;font-size:11px;padding:0 6px}
   .proc-token{height:18px;overflow:hidden;color:#666}
+  /* 假输入框：placeFind() 要靠“底右角那个 32px 的箭头”定位搜索入口 */
+  #composer{position:fixed;left:0;right:0;bottom:0;height:60px;display:flex;align-items:center;
+    gap:8px;padding:0 14px;background:#f6f6f6;border-top:1px solid #e5e5e5;z-index:1}
+  #composer .fake-input{flex:1;height:34px;border:1px solid #ddd;border-radius:8px;background:#fff}
+  #mock-send{margin-left:auto;width:32px;height:32px;border-radius:999px;border:0;
+    background:#3b82f6;color:#fff;font-size:15px;line-height:32px;cursor:pointer}
+  #scroll{padding-bottom:76px}
 </style>
 </head>
 <body>
 <div id="wrap">
   <div id="bar"></div>
   <div id="scroll"><div data-slot="conversation.chat.flow" id="flow"></div></div>
+  <div id="composer"><span class="fake-input"></span><button id="mock-send" type="button" aria-label="send">↑</button></div>
 </div>
 
 <script>
@@ -677,6 +685,79 @@ var checks = {
           ok: pins === 0 && vars.length === 0 && find === null && back && varsBack,
           detail: { pins: pins, varsLeft: vars, find: find !== null, findBack: back, varsBack: varsBack }
         };
+      });
+    });
+  },
+  findOnComposer: function () {
+    /* 搜索入口常驻在输入框内、与发送箭头同一行，且窗口尺寸变了也不跳位置：
+       不允许“先浮在外面，点开搜索才挪到输入框旁边”。 */
+    helpers.seed(6);
+    return wait(420).then(function () {
+      var btn = document.getElementById('dsh-ac-find');
+      var send = document.getElementById('mock-send');
+      if (btn === null || send === null) {
+        return { ok: false, detail: { btn: btn !== null, send: send !== null } };
+      }
+      var b = btn.getBoundingClientRect();
+      var s = send.getBoundingClientRect();
+      var detail = {
+        btnCenterY: Math.round(b.top + b.height / 2), sendCenterY: Math.round(s.top + s.height / 2),
+        gap: Math.round(s.left - b.right), size: Math.round(b.height),
+        btnRight: Math.round(b.right), sendLeft: Math.round(s.left), movedOnResize: false
+      };
+      detail.sameRow = Math.abs((b.top + b.height / 2) - (s.top + s.height / 2)) <= 2;
+      detail.leftOf = b.right <= s.left + 0.5;
+      detail.gapOk = s.left - b.right >= 2 && s.left - b.right <= 16;
+      window.dispatchEvent(new Event('resize'));
+      return wait(280).then(function () {
+        var again = document.getElementById('dsh-ac-find');
+        if (again === null) { detail.movedOnResize = true; return { ok: false, detail: detail }; }
+        var b2 = again.getBoundingClientRect();
+        detail.movedOnResize = Math.abs(b2.top - b.top) > 2 || Math.abs(b2.left - b.left) > 2;
+        /* 第三段：发送键左边再塞一个 32px 的“麦克风”按钮，入口必须让开、不许叠在它上面 */
+        var mic = document.createElement('button');
+        mic.id = 'mock-mic';
+        mic.type = 'button';
+        mic.style.cssText = 'width:32px;height:32px;border-radius:999px;border:0;margin:0 6px 0 0;background:#9ca3af';
+        send.parentNode.insertBefore(mic, send);
+        window.dispatchEvent(new Event('resize'));
+        return wait(300).then(function () {
+          var last = document.getElementById('dsh-ac-find');
+          var mr = mic.getBoundingClientRect();
+          var lr = last === null ? null : last.getBoundingClientRect();
+          detail.micLeft = Math.round(mr.left);
+          detail.micGap = lr === null ? null : Math.round(mr.left - lr.right);
+          var clearOfMic = lr !== null && mr.left - lr.right >= 2;
+          mic.parentNode.removeChild(mic);
+          window.dispatchEvent(new Event('resize'));
+          detail.clearOfMic = clearOfMic;
+          return {
+            ok: detail.sameRow && detail.leftOf && detail.gapOk && !detail.movedOnResize && clearOfMic,
+            detail: detail
+          };
+        });
+      });
+    });
+  },
+  findOnlyOnSession: function () {
+    /* 首页 / 空会话没有轮次行 → 不给入口，定位变量一并收掉；回到有轮次的会话再出现。 */
+    helpers.seed(3);
+    return wait(420).then(function () {
+      var onSession = document.getElementById('dsh-ac-find') !== null;
+      var varsOn = document.documentElement.style.getPropertyValue('--ac-find-right') !== '';
+      helpers.seed(0);
+      return wait(340).then(function () {
+        var gone = document.getElementById('dsh-ac-find') === null;
+        var vars = document.documentElement.style.getPropertyValue('--ac-find-right');
+        helpers.seed(2);
+        return wait(380).then(function () {
+          var back = document.getElementById('dsh-ac-find') !== null;
+          return {
+            ok: onSession && varsOn && gone && vars === '' && back,
+            detail: { onSession: onSession, varsOnSession: varsOn,
+              goneOnEmpty: gone, varsLeftOnEmpty: vars, backOnTurns: back }
+          };
+        });
       });
     });
   },

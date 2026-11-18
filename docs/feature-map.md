@@ -8,7 +8,7 @@
 | 项 | 值 |
 | --- | --- |
 | 名称 | `dsh-session-accordion` |
-| 版本 | `3.0.0` |
+| 版本 | `3.1.0` |
 | 说明 | DSH Web chat turn accordion: every interaction folds into one line, only the newest turn opens, and session switches or new turns reset the open state. |
 | 入口 | `./index.js`, `./client.js` |
 | DSH 形态 | {"bundle": {"patch": "./cordis.patch.yml"}, "client": {"platform": "web", "immediately": true, "inject": []}} |
@@ -76,6 +76,7 @@
 | `accordion-c` | `verify/scenarios/c.json` | 0 | search-filter, only-newest-fresh | - |
 | `accordion-e` | `verify/scenarios/e.json` | 0 | fork-chip, only-newest-fresh | - |
 | `accordion-f` | `verify/scenarios/f.json` | 0 | incremental-skip, only-newest-fresh | - |
+| `accordion-find-entry` | `verify/scenarios/find-entry.json` | 1 | find-on-composer, find-only-on-session, stop-clears-chrome | - |
 | `accordion-g` | `verify/scenarios/g.json` | 0 | a11y-i18n-theme, keyboard-j-esc, only-newest-fresh | - |
 | `accordion-p0` | `verify/scenarios/p0.json` | 0 | config-api, lifecycle-stop-start, multi-flow-select, only-newest-fresh | - |
 | `perf-scroll-stream` | `verify/scenarios/perf-scroll-stream.json` | 4 | line-contract, only-newest-expanded, no-scroll-writes, no-harness-errors | {"maxWorstFrameMs": 60, "maxLongTaskWorstMs": 120} |

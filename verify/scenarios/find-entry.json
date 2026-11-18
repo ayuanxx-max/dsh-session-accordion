@@ -1,0 +1,23 @@
+{
+  "name": "accordion-find-entry",
+  "steps": [
+    {
+      "js": "window.__h.seed(3)",
+      "waitMs": 300
+    }
+  ],
+  "checks": [
+    {
+      "name": "find-on-composer",
+      "js": "window.__check.findOnComposer()"
+    },
+    {
+      "name": "find-only-on-session",
+      "js": "window.__check.findOnlyOnSession()"
+    },
+    {
+      "name": "stop-clears-chrome",
+      "js": "window.__check.stopClearsChrome()"
+    }
+  ]
+}

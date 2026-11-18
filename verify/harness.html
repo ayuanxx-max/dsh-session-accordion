@@ -689,8 +689,8 @@ var checks = {
     });
   },
   findOnComposer: function () {
-    /* 搜索入口常驻在输入框内、与发送箭头同一行，且窗口尺寸变了也不跳位置：
-       不允许“先浮在外面，点开搜索才挪到输入框旁边”。 */
+    /* 入口挂在会话框右上：与发送箭头同尺寸、右边缘对齐、贴在箭头正上方；
+       搜索输入框开在它左侧同一行，点开/收起都不挪位置。 */
     helpers.seed(6);
     return wait(420).then(function () {
       var btn = document.getElementById('dsh-ac-find');
@@ -701,40 +701,42 @@ var checks = {
       var b = btn.getBoundingClientRect();
       var s = send.getBoundingClientRect();
       var detail = {
-        btnCenterY: Math.round(b.top + b.height / 2), sendCenterY: Math.round(s.top + s.height / 2),
-        gap: Math.round(s.left - b.right), size: Math.round(b.height),
-        btnRight: Math.round(b.right), sendLeft: Math.round(s.left), movedOnResize: false
+        btnTop: Math.round(b.top), btnBottom: Math.round(b.bottom), btnRight: Math.round(b.right),
+        sendTop: Math.round(s.top), sendRight: Math.round(s.right),
+        size: Math.round(b.height), sendSize: Math.round(s.height),
+        aboveGap: Math.round(s.top - b.bottom), movedOnResize: false
       };
-      detail.sameRow = Math.abs((b.top + b.height / 2) - (s.top + s.height / 2)) <= 2;
-      detail.leftOf = b.right <= s.left + 0.5;
-      detail.gapOk = s.left - b.right >= 2 && s.left - b.right <= 16;
+      detail.sameSize = Math.abs(b.height - s.height) <= 1;
+      detail.rightAligned = Math.abs(b.right - s.right) <= 1;
+      detail.above = s.top - b.bottom >= 0 && s.top - b.bottom <= 16;
       window.dispatchEvent(new Event('resize'));
       return wait(280).then(function () {
         var again = document.getElementById('dsh-ac-find');
         if (again === null) { detail.movedOnResize = true; return { ok: false, detail: detail }; }
         var b2 = again.getBoundingClientRect();
         detail.movedOnResize = Math.abs(b2.top - b.top) > 2 || Math.abs(b2.left - b.left) > 2;
-        /* 第三段：发送键左边再塞一个 32px 的“麦克风”按钮，入口必须让开、不许叠在它上面 */
-        var mic = document.createElement('button');
-        mic.id = 'mock-mic';
-        mic.type = 'button';
-        mic.style.cssText = 'width:32px;height:32px;border-radius:999px;border:0;margin:0 6px 0 0;background:#9ca3af';
-        send.parentNode.insertBefore(mic, send);
-        window.dispatchEvent(new Event('resize'));
-        return wait(300).then(function () {
-          var last = document.getElementById('dsh-ac-find');
-          var mr = mic.getBoundingClientRect();
-          var lr = last === null ? null : last.getBoundingClientRect();
-          detail.micLeft = Math.round(mr.left);
-          detail.micGap = lr === null ? null : Math.round(mr.left - lr.right);
-          var clearOfMic = lr !== null && mr.left - lr.right >= 2;
-          mic.parentNode.removeChild(mic);
-          window.dispatchEvent(new Event('resize'));
-          detail.clearOfMic = clearOfMic;
-          return {
-            ok: detail.sameRow && detail.leftOf && detail.gapOk && !detail.movedOnResize && clearOfMic,
-            detail: detail
-          };
+        again.click();
+        return wait(280).then(function () {
+          var box = document.getElementById('dsh-ac-search');
+          var q = box === null ? null : box.getBoundingClientRect();
+          detail.searchVisible = box !== null && box.style.display === 'flex';
+          detail.searchGapToBtn = q === null ? null : Math.round(b2.left - q.right);
+          detail.searchRowDelta = q === null ? null
+            : Math.round((q.top + q.height / 2) - (b2.top + b2.height / 2));
+          detail.searchLeftOfBtn = q !== null && q.right <= b2.left + 1 && b2.left - q.right <= 40;
+          detail.searchSameRow = q !== null &&
+            Math.abs((q.top + q.height / 2) - (b2.top + b2.height / 2)) <= 3;
+          if (box !== null) {
+            var closer = box.querySelector('.dsh-ac-close');
+            if (closer !== null) closer.click();
+          }
+          return wait(200).then(function () {
+            return {
+              ok: detail.sameSize && detail.rightAligned && detail.above && !detail.movedOnResize &&
+                  detail.searchVisible && detail.searchLeftOfBtn && detail.searchSameRow,
+              detail: detail
+            };
+          });
         });
       });
     });

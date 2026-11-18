@@ -8,7 +8,7 @@
 | 项 | 值 |
 | --- | --- |
 | 名称 | `dsh-session-accordion` |
-| 版本 | `3.1.0` |
+| 版本 | `3.1.1` |
 | 说明 | DSH Web chat turn accordion: every interaction folds into one line, only the newest turn opens, and session switches or new turns reset the open state. |
 | 入口 | `./index.js`, `./client.js` |
 | DSH 形态 | {"bundle": {"patch": "./cordis.patch.yml"}, "client": {"platform": "web", "immediately": true, "inject": []}} |

@@ -713,10 +713,29 @@ window.__ModuleLoader__.load({
 
     let lastFindGeom = '';
 
+    function clearFindGeom() {
+      try {
+        const root = document.documentElement.style;
+        root.removeProperty('--ac-find-right');
+        root.removeProperty('--ac-find-bottom');
+        root.removeProperty('--ac-find-size');
+        root.removeProperty('--ac-q-right');
+        root.removeProperty('--ac-q-bottom');
+      } catch (err) { /* 拿不到根样式就跳过 */ }
+      lastFindGeom = '';
+      sendBtnCache = null;
+    }
+
     // 一次测量，写 CSS 变量；不参与逐帧路径。几何没变就一次都不写。
-    // 位置语义：与发送箭头同一行，贴在它左边 8px；搜索框在按钮左边展开，全程不移动。
+    // 位置语义：与发送箭头同尺寸、右边缘对齐、贴箭头正上方 6px；搜索框在按钮左侧就地展开。
     function placeFind() {
       const root = document.documentElement.style;
+      // 守门放在这里：start() 的延时 placeFind、resize 都走这条路，
+      // 非会话页（首页/新建/设置）不许留下任何定位变量。
+      if (CFG.search !== true || sessionHasTurns() !== true) {
+        clearFindGeom();
+        return;
+      }
       const r = findSendButton();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -730,9 +749,10 @@ window.__ModuleLoader__.load({
         root.setProperty('--ac-q-bottom', '150px');
         return;
       }
-      const size = Math.round(Math.min(34, Math.max(22, r.height - 4)));
-      const center = r.top + r.height / 2;
-      let right = Math.round(vw - r.left + 8);
+      // 与发送箭头同尺寸、右边缘对齐，整体贴在箭头正上方 6px（会话框右上那一格）
+      const size = Math.round(Math.min(40, Math.max(22, r.height)));
+      let right = Math.round(vw - r.right);
+      const center = r.top - 6 - size / 2;
       // 真实输入框在发送箭头左边可能还有别的按钮（语音/附件/停止）：撞上就向左让开，
       // 少一次重叠比多一次查询划算，而且只在几何真变时才扫。
       for (let guard = 0; guard < 3; guard += 1) {
@@ -776,17 +796,8 @@ window.__ModuleLoader__.load({
           if (stale !== null) stale.style.display = 'none';
         }
         if (btn !== null) btn.remove();
-        // 关掉搜索就把定位变量一起收掉，别在根元素上留 5 个废值
-        try {
-          const root = document.documentElement.style;
-          root.removeProperty('--ac-find-right');
-          root.removeProperty('--ac-find-bottom');
-          root.removeProperty('--ac-find-size');
-          root.removeProperty('--ac-q-right');
-          root.removeProperty('--ac-q-bottom');
-        } catch (err) { /* 拿不到根样式就跳过 */ }
-        lastFindGeom = '';
-        sendBtnCache = null;
+        // 关掉搜索 / 离开会话页就把定位变量一起收掉，别在根元素上留 5 个废值
+        clearFindGeom();
         return null;
       }
       if (btn === null) {

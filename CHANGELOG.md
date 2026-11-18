@@ -3,8 +3,9 @@
 ## 文档修订：README 用中英双语说明替代演示 GIF（2026-11-18）
 
 - 删掉 `docs/images/demo-accordion.gif`（1.26 MB）与 `docs/images/demo-forktree.gif`（1.47 MB），
-  README 里换成「功能与使用 · Features and usage」：中文 9 小节（折叠/三态/钉住/搜索/时间线/分叉/性能/开关/自检）
-  + 英文 6 小节镜像，位置从文末上移到标题下方，一眼能看到。
+  说明改为**按语言分段落位**：中文 8 小节（折叠/三态/钉住/搜索/时间线/分叉/性能/开关）放进 `## 中文`
+  的「效果」与「安装」之间，英文 6 小节镜像放进 `## English` 的「What it looks like」与「Install」之间；
+  自检命令并入中文「诊断」段。
 - 顺带清掉文末重复的第二份开关代码块与重复的自检行。
 - 保留 `docs/images/session-management.svg`（静态示意图，不是动图）。
 - 影响面：README 本地链接全部校验通过（0 缺失）；npm 包体内不含 `docs/images`，

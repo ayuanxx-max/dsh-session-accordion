@@ -12,18 +12,63 @@
 
 ![会话管理示意](docs/images/session-management.svg)
 
+📖 **[会话管理指南（折叠 + 分叉树组合用法）](docs/session-management-guide.md)** · [Guide](docs/session-management-guide.md)
+
 ---
 
-## 功能与使用 · Features and usage
+## 平台支持与路线图
 
-> 3.0 起，这里用**中英文文字说明**替代原来的两支演示动图：钉住、搜索入口、三态配色这些细节在动图里一闪而过，读文字更快，
-> 也方便复制命令与开关。中文在下，English 紧随其后。
->
-> Since 3.0 the two demo GIFs are replaced by the written walkthroughs below (Chinese first, English
-> after) — pins, the search entry point and the three visual states are easier to read than to spot in
-> a looping animation, and the switches stay copy-pasteable.
+| 平台 | 状态 |
+| --- | --- |
+| **Windows 11（DSH Desktop）** | ✅ **稳定运行**（当前版本） |
+| Ubuntu | 🧪 **测试中**，尚未承诺稳定 |
+| macOS | 📋 **计划中** |
 
-### 功能与使用（中文）
+> 修复与功能调整的**优先级按评论 / 留言的反馈量排序**——遇到问题请直接开 issue 或留言，
+> 同类反馈越多越先修。欢迎提交你所在平台的环境信息。
+
+### 相关插件
+
+- [dsh-session-fork-tree](https://github.com/ayuanxx-max/dsh-session-fork-tree) —— 分叉会话以树状排列在侧边栏
+- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) —— DSH 插件精选列表
+
+把 DSH Web 会话里的每一次交互压成一行，只保留最近一次展开；点提问行展开，执行过程另行单独点开。
+
+Fold every interaction in a DSH Web chat into a single line and keep only the latest one open. Click a question row to expand it; the execution process opens only when you click its own header.
+
+[中文](#中文) · [English](#english)
+
+---
+
+## 中文
+
+### 这是什么
+
+一个 DSH（DeepSeek Harness）客户端插件。它不修改 `app.asar`、不碰核心 UI 源码，只在渲染层做三件事：
+
+1. 每个历史交互整轮收起，折叠成**固定一行**：左侧时间胶囊 `MM-DD HH:mm` + 单行提问摘要（超出省略）。
+2. 只保留**最近一次交互**展开；打开任何会话、切换工作区/会话、产生新交互，都会把展开态重置到最近一条（之前手动展开的也会被收起）。
+3. 点折叠行 → 该轮展开，同时把其它已展开的轮收起；再点提问 → 收回去。
+
+执行过程（思考、工具调用、步骤）不跟着展开：核心本身在回答结束时会收起过程，只有你单独点「过程摘要」那一行才会展开。
+
+### 效果
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 10-28 13:12   把这批日志按时间排序、去重，然后…        › │   ← 折叠（一行）
+├──────────────────────────────────────────────────────────┤
+│ 10-28 12:58   帮我看下 esp32 的引脚冲突                  › │
+├──────────────────────────────────────────────────────────┤
+│ 你的提问（全文）                                          │   ← 展开（最近一次）
+│ …回答正文…                                                │
+│ ▸ 12 步 · 思考 8s · 工具 4 次（点开才展开）               │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 功能与使用
+
+> 2.x 的演示动图已移除；交互细节以下文为准（每条都能直接对照界面核对）。
 
 一句话：**每一轮对话都折成一行，最新一轮展开；点折叠行看内容，再点收回；钉住的那一轮永远不折。**
 
@@ -95,133 +140,6 @@ localStorage.removeItem('dsh-ac-config'); // 全部恢复默认
 
 键盘：`j` / `k` 在折叠行之间上下移动，`Esc` 全收；所有可交互元素都带 `aria-*` 与 `aria-live` 计数播报。
 
-#### 9. 自检（12 个场景 50 条断言）
-
-```powershell
-python "%USERPROFILE%\.dsh\tools\verify-page.py" --root . --page verify/harness.html --scenario verify/scenarios/b.json --out reports/b
-```
-
-### Features and usage (English)
-
-Every chat turn folds into **one line**; only the newest turn is expanded. Click a folded line to
-expand it (others fold back), click it again to fold it. Pinned turns never fold.
-
-#### Fold / expand
-
-| Action | Result |
-| --- | --- |
-| Page load or session switch | Only the **newest** turn is expanded; every other turn is one line |
-| Click a folded line | That turn expands and the previously open one folds back (one body on screen at a time) |
-| Click the open turn again | It folds back to one line |
-| A new turn arrives (even while streaming) | The previous turn folds; pinned turns stay open |
-| `Esc` | Fold everything |
-
-#### Three visual states
-
-| State | Look |
-| --- | --- |
-| Folded | Grey chip + secondary text colour, dimmer timestamp |
-| Expanded | No chip, plain body |
-| Pinned | 2px accent bar on the left; folded pinned turns also get a light blue tint and a lit `📌` |
-
-#### Pinning and memory (📌)
-
-- Click the `📌` at the end of a folded line to pin that turn; it then stays expanded no matter how
-  many new messages arrive. Click again to unpin.
-- Pin/expand state is stored per session in `localStorage['dsh-ac-mem:<session key>']` and restored
-  when you reopen that session.
-
-#### Search (🔍)
-
-- **Closed by default**: after load only the 🔍 button is visible; the search box does not appear.
-- The 🔍 button floats **directly above the send arrow** (same x, same size). Click it to open the
-  search box, click it again to close.
-- The box opens to the **left of** 🔍 on the same horizontal band, so it never covers the composer.
-- Typing filters folded lines live: matches are highlighted, non-matching folded lines hide, and a
-  `current/total` counter is shown.
-- `Enter` jumps to the next match and expands it; `Esc` closes search and restores the list.
-- `Ctrl/Cmd+Shift+K` also opens it (**best effort**: DSH's own finder grabs `Ctrl+Shift+F`,
-  `Ctrl+Alt+F` and sometimes `Ctrl+Shift+K`, so the 🔍 button is the reliable entry point).
-- Only turns inside the **currently loaded window** are searched; click "load earlier" first to
-  include older history.
-
-#### Timeline, fork badge, performance
-
-- Day headers (`Today` / `Yesterday` / `MM-DD`) are inserted per day; hovering a folded line shows a
-  preview bubble with that turn's question.
-- Forked sessions show `↳ Fork · L<depth> · <origin title>` at the top.
-- The plugin **never writes `scrollTop`**; you always own the scroll position.
-- While scrolling, only **newly added turn rows** are folded synchronously (so heights never grow
-  then shrink, which is what makes a scrollbar jitter); streaming deltas are throttled through
-  `requestAnimationFrame` instead of re-walking the whole transcript per token.
-- Pin-overlay geometry is measured at most once per 90ms while scrolling, then corrected exactly
-  once scrolling stops. Rows whose signature is unchanged are skipped entirely.
-
-#### Switches
-
-```js
-__acConfig({ timeline: false, pin: false, memory: false, search: false,
-             forkchip: false, incremental: false, i18n: 'en', theme: 'light' });
-localStorage.removeItem('dsh-ac-config'); // back to defaults
-```
-
-Keyboard: `j` / `k` move between folded lines, `Esc` folds everything; interactive elements expose
-`aria-*` attributes and an `aria-live` counter.
-
-📖 **[会话管理指南（折叠 + 分叉树组合用法）](docs/session-management-guide.md)** · [Guide](docs/session-management-guide.md)
-
-
-## 平台支持与路线图
-
-| 平台 | 状态 |
-| --- | --- |
-| **Windows 11（DSH Desktop）** | ✅ **稳定运行**（当前版本） |
-| Ubuntu | 🧪 **测试中**，尚未承诺稳定 |
-| macOS | 📋 **计划中** |
-
-> 修复与功能调整的**优先级按评论 / 留言的反馈量排序**——遇到问题请直接开 issue 或留言，
-> 同类反馈越多越先修。欢迎提交你所在平台的环境信息。
-
-### 相关插件
-
-- [dsh-session-fork-tree](https://github.com/ayuanxx-max/dsh-session-fork-tree) —— 分叉会话以树状排列在侧边栏
-- [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) —— DSH 插件精选列表
-
-
-把 DSH Web 会话里的每一次交互压成一行，只保留最近一次展开；点提问行展开，执行过程另行单独点开。
-
-Fold every interaction in a DSH Web chat into a single line and keep only the latest one open. Click a question row to expand it; the execution process opens only when you click its own header.
-
-[中文](#中文) · [English](#english)
-
----
-
-## 中文
-
-### 这是什么
-
-一个 DSH（DeepSeek Harness）客户端插件。它不修改 `app.asar`、不碰核心 UI 源码，只在渲染层做三件事：
-
-1. 每个历史交互整轮收起，折叠成**固定一行**：左侧时间胶囊 `MM-DD HH:mm` + 单行提问摘要（超出省略）。
-2. 只保留**最近一次交互**展开；打开任何会话、切换工作区/会话、产生新交互，都会把展开态重置到最近一条（之前手动展开的也会被收起）。
-3. 点折叠行 → 该轮展开，同时把其它已展开的轮收起；再点提问 → 收回去。
-
-执行过程（思考、工具调用、步骤）不跟着展开：核心本身在回答结束时会收起过程，只有你单独点「过程摘要」那一行才会展开。
-
-### 效果
-
-```
-┌──────────────────────────────────────────────────────────┐
-│ 10-28 13:12   把这批日志按时间排序、去重，然后…        › │   ← 折叠（一行）
-├──────────────────────────────────────────────────────────┤
-│ 10-28 12:58   帮我看下 esp32 的引脚冲突                  › │
-├──────────────────────────────────────────────────────────┤
-│ 你的提问（全文）                                          │   ← 展开（最近一次）
-│ …回答正文…                                                │
-│ ▸ 12 步 · 思考 8s · 工具 4 次（点开才展开）               │
-└──────────────────────────────────────────────────────────┘
-```
-
 ### 安装
 
 **npm（推荐）**
@@ -244,7 +162,6 @@ dsh plugin --profile desktop remove dsh-session-accordion
 ```
 
 > 以下为源码方式（开发 / 离线环境）：
-
 
 前置：能跑 DSH Web UI 的宿主 —— Windows / macOS 桌面版，或 Linux 上的 `dsh web`。profile 名随宿主不同：桌面版默认 `desktop`，`dsh web` 默认 `web`，自定义 profile 用你自己的名字。
 
@@ -333,6 +250,12 @@ __acReport()
 
 输出每一轮的 `id / expanded / stamp / summary / items`。结构变化（DSH 升级后 DOM 改名）时，看这个能立刻定位是「分组失败」还是「时间取不到」。
 
+#### 自检（12 个场景 50 条断言）
+
+```powershell
+python "%USERPROFILE%\.dsh\tools\verify-page.py" --root . --page verify/harness.html --scenario verify/scenarios/b.json --out reports/b
+```
+
 ### 兼容性
 
 | 平台 / 引擎 | 状态 | 说明 |
@@ -398,6 +321,75 @@ The execution process (thinking, tool calls, steps) does not expand with the tur
 │ ▸ 12 steps · 8s thinking · 4 tool calls (click to open)  │
 └──────────────────────────────────────────────────────────┘
 ```
+
+### Features and usage
+
+> The 2.x demo GIFs are gone; the interaction details below are the reference.
+
+Every chat turn folds into **one line**; only the newest turn is expanded. Click a folded line to
+expand it (others fold back), click it again to fold it. Pinned turns never fold.
+
+#### Fold / expand
+
+| Action | Result |
+| --- | --- |
+| Page load or session switch | Only the **newest** turn is expanded; every other turn is one line |
+| Click a folded line | That turn expands and the previously open one folds back (one body on screen at a time) |
+| Click the open turn again | It folds back to one line |
+| A new turn arrives (even while streaming) | The previous turn folds; pinned turns stay open |
+| `Esc` | Fold everything |
+
+#### Three visual states
+
+| State | Look |
+| --- | --- |
+| Folded | Grey chip + secondary text colour, dimmer timestamp |
+| Expanded | No chip, plain body |
+| Pinned | 2px accent bar on the left; folded pinned turns also get a light blue tint and a lit `📌` |
+
+#### Pinning and memory (📌)
+
+- Click the `📌` at the end of a folded line to pin that turn; it then stays expanded no matter how
+  many new messages arrive. Click again to unpin.
+- Pin/expand state is stored per session in `localStorage['dsh-ac-mem:<session key>']` and restored
+  when you reopen that session.
+
+#### Search (🔍)
+
+- **Closed by default**: after load only the 🔍 button is visible; the search box does not appear.
+- The 🔍 button floats **directly above the send arrow** (same x, same size). Click it to open the
+  search box, click it again to close.
+- The box opens to the **left of** 🔍 on the same horizontal band, so it never covers the composer.
+- Typing filters folded lines live: matches are highlighted, non-matching folded lines hide, and a
+  `current/total` counter is shown.
+- `Enter` jumps to the next match and expands it; `Esc` closes search and restores the list.
+- `Ctrl/Cmd+Shift+K` also opens it (**best effort**: DSH's own finder grabs `Ctrl+Shift+F`,
+  `Ctrl+Alt+F` and sometimes `Ctrl+Shift+K`, so the 🔍 button is the reliable entry point).
+- Only turns inside the **currently loaded window** are searched; click "load earlier" first to
+  include older history.
+
+#### Timeline, fork badge, performance
+
+- Day headers (`Today` / `Yesterday` / `MM-DD`) are inserted per day; hovering a folded line shows a
+  preview bubble with that turn's question.
+- Forked sessions show `↳ Fork · L<depth> · <origin title>` at the top.
+- The plugin **never writes `scrollTop`**; you always own the scroll position.
+- While scrolling, only **newly added turn rows** are folded synchronously (so heights never grow
+  then shrink, which is what makes a scrollbar jitter); streaming deltas are throttled through
+  `requestAnimationFrame` instead of re-walking the whole transcript per token.
+- Pin-overlay geometry is measured at most once per 90ms while scrolling, then corrected exactly
+  once scrolling stops. Rows whose signature is unchanged are skipped entirely.
+
+#### Switches
+
+```js
+__acConfig({ timeline: false, pin: false, memory: false, search: false,
+             forkchip: false, incremental: false, i18n: 'en', theme: 'light' });
+localStorage.removeItem('dsh-ac-config'); // back to defaults
+```
+
+Keyboard: `j` / `k` move between folded lines, `Esc` folds everything; interactive elements expose
+`aria-*` attributes and an `aria-live` counter.
 
 ### Install
 

@@ -5,6 +5,10 @@
   "description": "DSH Web chat turn accordion: every interaction folds into one line, only the newest turn opens, and session switches or new turns reset the open state.",
   "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test test/",
+    "check": "node scripts/check.mjs"
+  },
   "keywords": [
     "dsh",
     "deepseek-harness",

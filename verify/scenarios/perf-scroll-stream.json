@@ -1,0 +1,43 @@
+{
+  "name": "perf-scroll-stream",
+  "metrics": {
+    "maxWorstFrameMs": 60,
+    "maxLongTaskWorstMs": 120
+  },
+  "steps": [
+    {
+      "js": "window.__h.seed(60, 4)",
+      "waitMs": 400
+    },
+    {
+      "js": "window.__h.scrollStep(-100000)",
+      "waitMs": 200
+    },
+    {
+      "js": "(async()=>{const s=document.getElementById('scroll');for(let i=0;i<40;i++){window.__h.storm(1,4);s.scrollTop=Math.max(0,s.scrollTop-70);await new Promise(r=>requestAnimationFrame(r));}})()",
+      "waitMs": 600
+    },
+    {
+      "js": "(async()=>{const s=document.getElementById('scroll');for(let i=0;i<20;i++){s.scrollTop=Math.max(0,s.scrollTop-70);await new Promise(r=>setTimeout(r,30));}})()",
+      "waitMs": 400
+    }
+  ],
+  "checks": [
+    {
+      "name": "line-contract",
+      "js": "window.__check.lineContract()"
+    },
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    },
+    {
+      "name": "no-scroll-writes",
+      "js": "window.__check.noScrollWrites()"
+    },
+    {
+      "name": "no-harness-errors",
+      "js": "window.__check.noHarnessErrors()"
+    }
+  ]
+}

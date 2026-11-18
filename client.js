@@ -209,6 +209,12 @@ window.__ModuleLoader__.load({
         '  background-repeat:no-repeat;background-position:right 9px center;background-size:12px 12px;',
         '  background-image:' + CHEVRON + '}',
         '[' + LINE_ATTR + '="1"]>*{visibility:hidden!important}',
+        /* 三态可分辨：折叠=灰底次要色字；展开=原样无底；钉住=左侧强调色条（折叠时再叠淡蓝底） */
+        '[' + LINE_ATTR + '="1"]{background:rgba(127,127,127,.10);border-radius:8px}',
+        '[' + LINE_ATTR + '="1"]::after{color:var(--dsw-alias-label-secondary,#a9a9a9)!important}',
+        '[' + LINE_ATTR + '="1"]::before{opacity:.62}',
+        '[' + PIN_ATTR + '="1"]{box-shadow:inset 2px 0 0 0 var(--dsw-alias-brand-primary,#6f8cff)}',
+        '[' + PIN_ATTR + '="1"][' + LINE_ATTR + '="1"]{background:rgba(111,140,255,.12)}',
 
         /* 📌 画在气泡内部：只在钉住特性开启时加左侧内缩，变量由 syncPins 按字号算 */
         '[' + PINBOX_ATTR + '="1"] [' + USER_ATTR + '="1"] [class*="_bubble"]{',
@@ -232,7 +238,8 @@ window.__ModuleLoader__.load({
         '[' + LINE_ATTR + '="1"]:hover::after{color:var(--dsw-alias-label-primary,#fff)}',
         '[' + LINE_ATTR + '="1"]:active{background-color:rgba(127,127,127,.18)}',
 
-        '.dsh-ac-search{position:fixed;right:18px;top:44px;z-index:9998;display:none;align-items:center;gap:6px;',
+        '.dsh-ac-search{position:fixed;right:var(--ac-q-right,74px);bottom:var(--ac-q-bottom,150px);',
+        '  top:auto;z-index:2147483001;display:none;align-items:center;gap:6px;',
         '  padding:5px 8px;border-radius:10px;font-size:12px;box-shadow:0 6px 20px rgba(0,0,0,.28);',
         '  background:var(--dsw-alias-bg-elevated,#2a2a2a);border:1px solid rgba(127,127,127,.3);',
         '  color:var(--dsw-alias-label-primary,#fff)}',
@@ -243,8 +250,10 @@ window.__ModuleLoader__.load({
         '[' + FILTER_ATTR + '="1"]{display:none!important}',
 
         /* C：搜索入口按钮。fixed 挂在 body 上，不进入聊天流 → 不改变行高、不触发滚动抖动 */
-        '.dsh-ac-find{position:fixed;right:26px;bottom:136px;z-index:2147483000;',
-        '  width:28px;height:28px;padding:0;border-radius:999px;',
+        /* 位置/尺寸由 placeFind() 按发送箭头实测写进这几个变量；拿不到箭头时用默认值 */
+        '.dsh-ac-find{position:fixed;right:var(--ac-find-right,26px);bottom:var(--ac-find-bottom,150px);',
+        '  z-index:2147483000;width:var(--ac-find-size,28px);height:var(--ac-find-size,28px);',
+        '  padding:0;border-radius:999px;',
         '  border:1px solid rgba(127,127,127,.35);background:rgba(127,127,127,.14);',
         '  color:var(--dsw-alias-label-secondary,#c9c9c9);font-size:13px;line-height:26px;',
         '  text-align:center;cursor:pointer;opacity:.55;transition:opacity .12s ease}',
@@ -635,6 +644,47 @@ window.__ModuleLoader__.load({
       return box;
     }
 
+    function findSendButton() {
+      const all = document.querySelectorAll('button');
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let best = null;
+      for (let i = 0; i < all.length; i += 1) {
+        const b = all[i];
+        if (b.id === 'dsh-ac-find') continue;
+        const r = b.getBoundingClientRect();
+        if (r.width < 18 || r.width > 64 || r.height < 18 || r.height > 64) continue;
+        if (r.top < vh * 0.6) continue;
+        if (vw - r.right > 150) continue;
+        if (best === null || r.right > best.right + 1 || (Math.abs(r.right - best.right) <= 1 && r.top > best.top)) best = r;
+      }
+      return best;
+    }
+
+    // 一次测量，写 CSS 变量；不参与逐帧路径。
+    function placeFind() {
+      const root = document.documentElement.style;
+      const r = findSendButton();
+      if (r === null) {
+        root.setProperty('--ac-find-right', '26px');
+        root.setProperty('--ac-find-bottom', '150px');
+        root.setProperty('--ac-find-size', '28px');
+        root.setProperty('--ac-q-right', '74px');
+        root.setProperty('--ac-q-bottom', '150px');
+        return;
+      }
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const size = Math.round(Math.min(34, Math.max(22, r.width)));
+      const right = Math.round(vw - r.right);
+      const bottom = Math.round(vh - r.top + 8);
+      root.setProperty('--ac-find-right', right + 'px');
+      root.setProperty('--ac-find-bottom', bottom + 'px');
+      root.setProperty('--ac-find-size', size + 'px');
+      root.setProperty('--ac-q-right', (right + size + 10) + 'px');
+      root.setProperty('--ac-q-bottom', bottom + 'px');
+    }
+
     function ensureFindButton() {
       let btn = document.getElementById('dsh-ac-find');
       if (CFG.search !== true) {
@@ -654,6 +704,7 @@ window.__ModuleLoader__.load({
         });
         document.body.appendChild(btn);
       }
+      placeFind();
       btn.textContent = '🔍';
       btn.setAttribute('aria-label', t('searchLabel'));
       btn.setAttribute('aria-pressed', searchOpen ? 'true' : 'false');
@@ -1590,9 +1641,11 @@ window.__ModuleLoader__.load({
       // 只推迟“插/删日期头”这类成批改高度的动作，滚停后再补。
       const quietNow = force !== true && Date.now() < scrollQuietUntil;
       if (quietNow) {
-        try {
-          if (lastPinFlow !== null && lastPinFlow.isConnected) syncPins(lastPinFlow, lastPinRows);
-        } catch (err) { /* 覆盖层刷新失败不影响主流程 */ }
+        if (pinsSyncAllowed()) {
+          try {
+            if (lastPinFlow !== null && lastPinFlow.isConnected) syncPins(lastPinFlow, lastPinRows);
+          } catch (err) { /* 覆盖层刷新失败不影响主流程 */ }
+        }
         window.setTimeout(schedule, Math.min(400, scrollQuietUntil - Date.now() + 40));
       }
       ensureStyle();
@@ -1766,7 +1819,7 @@ window.__ModuleLoader__.load({
       }
       // 放在最后一次会改变行位置的 DOM 操作之后：日期头/分叉徽标会让所有行下移，
       // 先写坐标就会整体错位（真机"图标乱放"的根因之一）。
-      syncPins(flow, rendered);
+      if (!quietNow || pinsSyncAllowed()) syncPins(flow, rendered);
       lastPinFlow = flow;
       lastPinRows = rendered;
       schedulePinFix();
@@ -1932,6 +1985,19 @@ window.__ModuleLoader__.load({
     }
 
     /** 我们自己的写入会触发 observer：不过滤就会“apply -> 写 DOM -> apply”无限循环。 */
+    function addsTurnRows(records) {
+      for (let i = 0; i < records.length; i += 1) {
+        const added = records[i].addedNodes;
+        for (let j = 0; j < added.length; j += 1) {
+          const n = added[j];
+          if (!(n instanceof Element)) continue;
+          if (n.matches('[data-chat-turn]') || n.closest('[data-chat-turn]') !== null) return true;
+          if (n.querySelector('[data-chat-turn]') !== null) return true;
+        }
+      }
+      return false;
+    }
+
     function mutationMatters(records) {
       for (let i = 0; i < records.length; i += 1) {
         const tgt = records[i].target;
@@ -1945,6 +2011,16 @@ window.__ModuleLoader__.load({
     let timer = 0;
     let disposed = false;
     let lastSyncApply = 0;
+    let lastPinSync = 0;
+
+    // 📌 覆盖层的位置是内容坐标，滚动时本来就不该变；
+    // 滚动中最多 90ms 量一次几何，滚停后的那次 apply 一定全量校正。
+    function pinsSyncAllowed() {
+      const now = Date.now();
+      if (now < scrollQuietUntil && now - lastPinSync < 90) return false;
+      lastPinSync = now;
+      return true;
+    }
 
     function stop() {
       disposed = true;
@@ -1988,6 +2064,10 @@ window.__ModuleLoader__.load({
           if (applyDepth > 0) { schedule(); return; }
           const now = Date.now();
           if (now - lastSyncApply < 12) { schedule(); return; }
+          // 滚动中只有“新增了轮次行”才值得立刻同步折叠（那是唯一会让行先高后低的情况）；
+          // 流式输出改的是文本节点，视觉上高度不变，交给 rAF 节流即可。
+          // 否则每来一次 delta 就在主线程跑一遍全表 apply，用户边滚边卡。
+          if (Date.now() < scrollQuietUntil && !addsTurnRows(records)) { schedule(); return; }
           lastSyncApply = now;
           try {
             apply();
@@ -2001,6 +2081,9 @@ window.__ModuleLoader__.load({
         console.warn('[auto-collapse] observer unavailable', err);
       }
       window.addEventListener('resize', schedule);
+      window.addEventListener('resize', placeFind);
+      window.setTimeout(placeFind, 900);
+      window.setTimeout(placeFind, 2600);
       timer = setInterval(schedule, 1500);
       setTimeout(schedule, 300);
       window.__acForget = forgetAll;

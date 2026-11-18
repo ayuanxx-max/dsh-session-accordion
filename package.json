@@ -41,7 +41,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ayuanxx-max/dsh-session-accordion.git"
+    "url": "git+https://github.com/ayuanxx-max/dsh-session-accordion.git"
   },
   "homepage": "https://github.com/ayuanxx-max/dsh-session-accordion#readme",
   "bugs": {

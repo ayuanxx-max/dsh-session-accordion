@@ -378,22 +378,144 @@ Pick the former if you want to skim every answer at once; pick this one if you w
 
 MIT, see [LICENSE](LICENSE).
 
-## 3.0 特性与开关
+## What's new in 3.0 (English)
 
-时间线日期分组 / 钉住与记忆 / 提问搜索 / 分叉徽标 / 增量渲染 / 双语与无障碍，均为独立开关。
+Every chat turn folds into **one line**; only the newest turn is expanded. Click a folded line to
+expand it (others fold back), click it again to fold it. Pinned turns never fold.
 
-### 界面约定
+### Fold / expand
 
-| 位置 | 行为 |
+| Action | Result |
 | --- | --- |
-| 折叠行 | 灰色底 + 次要色文字，一眼区别于展开行 |
-| 展开行 | 原样无底色；新轮次到达时上一轮自动折回 |
-| 钉住行 | 左侧 2px 强调色条（折叠时再叠淡蓝底），新轮次不会把它折回去 |
-| 右下 🔍 | 悬在**发送箭头正上方**（同 x、同尺寸）；点一下开/关搜索条 |
-| 搜索条 | 开在 🔍 **左侧**、同一水平带；输入即过滤折叠行，`Enter` 跳到下一个命中并展开，`Esc` 关闭并还原 |
+| Page load or session switch | Only the **newest** turn is expanded; every other turn is one line |
+| Click a folded line | That turn expands and the previously open one folds back (one body on screen at a time) |
+| Click the open turn again | It folds back to one line |
+| A new turn arrives (even while streaming) | The previous turn folds; pinned turns stay open |
+| `Esc` | Fold everything |
 
-键盘：`Ctrl/Cmd+Shift+K` 打开搜索（**最佳努力**：DSH 自带查找面板会抢 `Ctrl+Shift+F`、
-`Ctrl+Alt+F`、有时也抢 `Ctrl+Shift+K`，所以入口以 🔍 按钮为准）；`j`/`k` 上下移动，`Esc` 全收。
+### Three visual states
+
+| State | Look |
+| --- | --- |
+| Folded | Grey chip + secondary text colour, dimmer timestamp |
+| Expanded | No chip, plain body |
+| Pinned | 2px accent bar on the left; folded pinned turns also get a light blue tint and a lit `📌` |
+
+### Pinning and memory (📌)
+
+- Click the `📌` at the end of a folded line to pin that turn; it then stays expanded no matter how
+  many new messages arrive. Click again to unpin.
+- Pin/expand state is stored per session in `localStorage['dsh-ac-mem:<session key>']` and restored
+  when you reopen that session.
+
+### Search (🔍)
+
+- **Closed by default**: after load only the 🔍 button is visible; the search box does not appear.
+- The 🔍 button floats **directly above the send arrow** (same x, same size). Click it to open the
+  search box, click it again to close.
+- The box opens to the **left of** 🔍 on the same horizontal band, so it never covers the composer.
+- Typing filters folded lines live: matches are highlighted, non-matching folded lines hide, and a
+  `current/total` counter is shown.
+- `Enter` jumps to the next match and expands it; `Esc` closes search and restores the list.
+- `Ctrl/Cmd+Shift+K` also opens it (**best effort**: DSH's own finder grabs `Ctrl+Shift+F`,
+  `Ctrl+Alt+F` and sometimes `Ctrl+Shift+K`, so the 🔍 button is the reliable entry point).
+- Only turns inside the **currently loaded window** are searched; click "load earlier" first to
+  include older history.
+
+### Timeline, fork badge, performance
+
+- Day headers (`Today` / `Yesterday` / `MM-DD`) are inserted per day; hovering a folded line shows a
+  preview bubble with that turn's question.
+- Forked sessions show `↳ Fork · L<depth> · <origin title>` at the top.
+- The plugin **never writes `scrollTop`**; you always own the scroll position.
+- While scrolling, only **newly added turn rows** are folded synchronously (so heights never grow
+  then shrink, which is what makes a scrollbar jitter); streaming deltas are throttled through
+  `requestAnimationFrame` instead of re-walking the whole transcript per token.
+- Pin-overlay geometry is measured at most once per 90ms while scrolling, then corrected exactly
+  once scrolling stops. Rows whose signature is unchanged are skipped entirely.
+
+### Switches
+
+```js
+__acConfig({ timeline: false, pin: false, memory: false, search: false,
+             forkchip: false, incremental: false, i18n: 'en', theme: 'light' });
+localStorage.removeItem('dsh-ac-config'); // back to defaults
+```
+
+Keyboard: `j` / `k` move between folded lines, `Esc` folds everything; interactive elements expose
+`aria-*` attributes and an `aria-live` counter.
+
+## 3.0 详细功能与使用（中文）
+
+一句话：**每一轮对话都折成一行，最新一轮展开；点折叠行看内容，再点收回；钉住的那一轮永远不折。**
+
+### 1. 折叠与展开
+
+| 操作 | 结果 |
+| --- | --- |
+| 页面加载 / 切换会话 | 只有**最新一轮**展开，其余全部折成一行（时间 + 提问首行） |
+| 点击任意折叠行 | 该轮展开，**其他轮自动折回**（保证屏幕上只有一份正文，滚动条不会突然变长） |
+| 再次点击已展开的那一轮 | 收回成一行 |
+| 新轮次到达（含流式输出中） | 上一轮自动折回，新一轮展开；已钉住的轮次**不受影响** |
+| `Esc` | 全部收回成一行 |
+
+### 2. 三种状态一眼可分辨
+
+| 状态 | 视觉 |
+| --- | --- |
+| 折叠行 | 灰色底 + 次要色文字，时间更淡 |
+| 展开行 | 原样，无底色 |
+| 钉住行 | 左侧 2px 强调色条；折叠时再叠一层淡蓝底，`📌` 高亮 |
+
+### 3. 钉住与记忆（📌）
+
+- 点折叠行右侧的 `📌` 钉住该轮 → 之后无论来多少新消息，它都保持展开。
+- 再点一次解除钉住，回到“只有最新一轮展开”的规则。
+- 每个会话的钉住/展开状态存在 `localStorage['dsh-ac-mem:<会话键>']`，重新打开该会话自动恢复。
+
+### 4. 搜索（🔍）
+
+- **默认关闭**：加载后搜索框不出现，只显示右下角 🔍 按钮。
+- 🔍 按钮悬在**发送箭头正上方**（与箭头同 x、同尺寸）；点一下打开搜索框，再点一下关闭。
+- 搜索框开在 🔍 **左侧**、与它同一水平带，不遮挡发送区。
+- 输入即实时过滤折叠行：命中的行高亮，未命中的折叠行暂时隐藏；计数显示 `当前/总数`。
+- `Enter` 跳到下一个命中并展开它；`Esc` 关闭搜索并完整还原列表。
+- 快捷键 `Ctrl/Cmd+Shift+K` 可打开（**最佳努力**：DSH 自带查找面板会抢 `Ctrl+Shift+F`、
+  `Ctrl+Alt+F`，有时也抢 `Ctrl+Shift+K`，所以正式入口是 🔍 按钮）。
+- 只过滤**已加载窗口**内的折叠行；被虚拟化卸载的更早内容需要先「加载更早」再搜。
+
+### 5. 时间线（日期分组）
+
+- 按天插入日期吸头（`今天` | `昨天` | `MM-DD`），跨天时自动分段。
+- 鼠标停在折叠行上会出预览气泡，显示该轮提问的完整首段。
+
+### 6. 分叉徽标
+
+- 分叉出来的会话在顶部显示 `↳ 分叉 · L<深度> · <来源标题>`，一眼看出出处与层级。
+
+### 7. 性能与安全边界
+
+- 折叠只改 `visibility` / 属性，**从不写 `scrollTop`**：滚动位置永远归你，插件不会抢。
+- 滚动中只对**新增轮次行**做同步折叠（避免高度先高后低导致滚动条抖动）；
+  流式 delta 走 `requestAnimationFrame` 节流，不在每次 token 上跑全表。
+- 📌 覆盖层的几何量测在滚动中限流到 90ms 一次，滚停后全量校正。
+- 增量渲染：签名没变的行整行跳过，不重写 DOM。
+
+### 8. 开关（全部可单独关，存 `dsh-ac-config`）
+
+```js
+__acConfig({ timeline: false });   // 关时间线
+__acConfig({ pin: false });        // 关钉住
+__acConfig({ memory: false });     // 关会话记忆
+__acConfig({ search: false });     // 关搜索（🔍 按钮一起消失）
+__acConfig({ forkchip: false });   // 关分叉徽标
+__acConfig({ incremental: false });// 关增量渲染
+__acConfig({ i18n: 'en' });        // 强制英文（默认 auto）
+__acConfig({ theme: 'light' });    // 强制浅色（默认跟随）
+localStorage.removeItem('dsh-ac-config'); // 全部恢复默认
+```
+
+键盘：`j` / `k` 在折叠行之间上下移动，`Esc` 全收；所有可交互元素都带 `aria-*` 与 `aria-live` 计数播报。
 
 ```js
 // 运行时（立即生效，写入 localStorage）

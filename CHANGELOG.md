@@ -1,5 +1,22 @@
 # Changelog · 更新记录
 
+## 3.0.0 发布记录（2026-11-18，已发布）
+
+| 通道 | 结果 |
+| --- | --- |
+| npm | `dsh-session-accordion@3.0.0` 已公开，`latest = 3.0.0`（发布者 `jack.camps`，published 2026-11-18T05:06:04Z；9 文件 45,478 B，shasum `3af606b5`） |
+| git tag | `v3.0.0`（`ac38923`，已推 origin） |
+| GitHub Release | <https://github.com/ayuanxx-max/dsh-session-accordion/releases/tag/v3.0.0>，附件 `dsh-session-accordion-3.0.0.tgz` |
+| 本机 profile | `~/.dsh/profiles/desktop` 从 `link:E:/...` 切成 `"3.0.0"`；因应用运行时 pnpm 重命名被 EPERM 挡住，改用「解包 npm tarball 覆盖 node_modules 条目」完成；重载界面后折叠/🔍/三态配色正常 |
+
+发版前检查：12 场景 50 断言全绿、`tools/precommit.ps1` PASS(101)、`tools/check.ps1` PASS(13)、
+`node --check` 0、`npm pack --dry-run` 9 文件。
+
+踩坑记录：npm 首次 `publish` 报 404 是 token 失效（`whoami` 401）；修好 token 后 `publish` 报
+`409 Cannot publish over previously staged version`，其实是 3.0.0 已经发布、注册表读端点还在缓存旧文档
+（几分钟后 `/3.0.0` 返回 200、`dist-tags.latest=3.0.0`）；再跑一次 `publish` 会报
+`cannot publish over the previously published versions: 3.0.0`，可用来反证"已经发上去了"。
+
 ## 3.0.0-live 修订 13（🔍 贴到发送箭头上方 + 三态配色 + 滚动性能，2026-11-17）
 
 **1. 搜索入口位置**：右下角 🔍 现在是「发送箭头正上方、同 x、同尺寸」。

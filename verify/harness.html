@@ -604,6 +604,82 @@ var checks = {
       });
     });
   },
+  idleSkip: function () {
+    /* 1500ms 兜底 pass：没有任何变化就不该跑整表（以前每 1.5s 白烧一次全量读写）。
+       用插件自己的 passes 计数验证：静置 3.3s 最多允许 1 趟。 */
+    helpers.seed(40);
+    return wait(700).then(function () {
+      var p0 = (window.__acReport() || {}).passes || 0;
+      return wait(3400).then(function () {
+        var r = window.__acReport() || {};
+        var p1 = r.passes || 0;
+        var gs = groups();
+        var folded = 0;
+        for (var i = 0; i < gs.length - 1; i += 1) if (isHidden(procOf(gs[i]))) folded += 1;
+        return {
+          ok: p1 - p0 <= 1 && folded === gs.length - 1 && gs.length >= 2,
+          detail: { passesBefore: p0, passesAfter: p1, delta: p1 - p0, folded: folded, turns: gs.length }
+        };
+      });
+    });
+  },
+  poisonRow: function () {
+    /* 一行读属性就抛异常（应用重建 / 扩展插件改过结构时真会发生）：
+       这一行可以跳过，但整趟不许中断 —— 其余行照旧折叠。
+       注意：断言不能再走 harness 自己的 groups()（它也读属性），只数原生属性选择器。 */
+    helpers.seed(4);
+    return wait(320).then(function () {
+      var flow = document.querySelector('[data-slot="conversation.chat.flow"]');
+      var before = (window.__acReport() || {}).passes || 0;
+      var bad = document.createElement('div');
+      bad.setAttribute('data-chat-turn', 'poison1');
+      bad.innerHTML = '<div class="_bubble_h">毒</div>';
+      bad.getAttribute = function () { throw new Error('poison'); };
+      flow.appendChild(bad);
+      var threw = false;
+      try {
+        window.__acDebug.apply(true);
+      } catch (err) {
+        threw = true;
+      }
+      var hidden = document.querySelectorAll('[data-chat-turn][data-ac-hidden="1"]').length;
+      var after = (window.__acReport() || {}).passes || 0;
+      if (bad.parentNode !== null) bad.parentNode.removeChild(bad);
+      var result = {
+        ok: !threw && after > before && hidden === 3,
+        detail: { threwFromApply: threw, hiddenFold: hidden, want: 3, passesBefore: before, passesAfter: after }
+      };
+      return wait(240).then(function () { return result; });
+    });
+  },
+  stopClearsChrome: function () {
+    /* 停止后不许再有任何延迟任务把 📌 / 定位变量写回来：
+       停 → 改窗口尺寸 → 等一拍，📌 层与 --ac-find-* 都必须还是空的。 */
+    helpers.seed(3);
+    return wait(300).then(function () {
+      window.__acConfig({ search: true, pin: true });
+      return wait(260);
+    }).then(function () {
+      window.__acStop();
+      window.dispatchEvent(new Event('resize'));
+      return wait(320);
+    }).then(function () {
+      var root = document.documentElement.style;
+      var pins = document.querySelectorAll('.dsh-ac-pin, .dsh-ac-pinlayer').length;
+      var vars = ['--ac-find-right', '--ac-find-bottom', '--ac-find-size', '--ac-q-right', '--ac-q-bottom']
+        .filter(function (name) { return root.getPropertyValue(name) !== ''; });
+      var find = document.getElementById('dsh-ac-find');
+      window.__acStart();
+      return wait(300).then(function () {
+        var back = document.getElementById('dsh-ac-find') !== null;
+        var varsBack = document.documentElement.style.getPropertyValue('--ac-find-right') !== '';
+        return {
+          ok: pins === 0 && vars.length === 0 && find === null && back && varsBack,
+          detail: { pins: pins, varsLeft: vars, find: find !== null, findBack: back, varsBack: varsBack }
+        };
+      });
+    });
+  },
   configApi: function () {
     var off = window.__acConfig({ guard: false });
     var on = window.__acConfig({ guard: true });

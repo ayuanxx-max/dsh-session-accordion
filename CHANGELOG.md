@@ -1,5 +1,18 @@
 # Changelog · 更新记录
 
+## 修复：阶段 3（2026-11-18）
+
+- 空转：1500ms 兜底 pass 加“无变化快返回”（结构/展开目标/查询/钉住/会话 key/开关全同就跳过）。
+  A/B 实测（40 轮静置 3.4s）：整表 pass 由 **3 趟降到 1 趟**。
+- 健壮性：行循环逐行 try/catch；`groups()` 读 `data-chat-turn` 也兜住；`__acReport()`
+  逐行兜底——一行结构异常只会跳过它自己，整趟与诊断接口都不再崩。
+- 生命周期：`stop()` 回收 `pinFixRaf` 与 120ms 的 `pinFixTimer`；`restoreDom()` 清空
+  `lastPinFlow/lastPinRows` 与两个签名，停后改窗口尺寸不会再长出 📌。
+- 搜索：关掉搜索时收回 `--ac-find-*` / `--ac-q-*` 五个定位变量。
+- 可观测：`__acReport()` 新增 `passes`（整表 pass 计数），供自检判断是否空转。
+- 验证：新增 `verify/scenarios/phase3.json`（`idle-skip` / `poison-row` / `stop-clears-chrome`），
+  15 个场景断言 0 红。
+
 ## 修复：阶段 2（2026-11-18）
 
 - 搜索：命中表每趟整体重建（以前只做交集，零命中仍显示 1/N，回车会跳到不含关键词的轮次）。

@@ -1,0 +1,23 @@
+{
+  "name": "accordion-phase3",
+  "steps": [
+    {
+      "js": "window.__h.seed(3)",
+      "waitMs": 300
+    }
+  ],
+  "checks": [
+    {
+      "name": "idle-skip",
+      "js": "window.__check.idleSkip()"
+    },
+    {
+      "name": "poison-row",
+      "js": "window.__check.poisonRow()"
+    },
+    {
+      "name": "stop-clears-chrome",
+      "js": "window.__check.stopClearsChrome()"
+    }
+  ]
+}

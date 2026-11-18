@@ -335,7 +335,14 @@ window.__ModuleLoader__.load({
       for (let i = 0; i < all.length; i++) {
         const el = all[i];
         if (el.closest(ITEM_SEL) !== el) continue;
-        const id = el.getAttribute('data-chat-turn');
+        let id = '';
+        try {
+          id = el.getAttribute('data-chat-turn');
+        } catch (err) {
+          // 行被应用/扩展插件做成怪对象时读属性会抛：跳过这一行，别让整趟 pass 死在这里
+          console.warn('[auto-collapse] row unreadable', err);
+          continue;
+        }
         if (!id) continue;
         let group = byId.get(id);
         if (group === undefined) {
@@ -697,6 +704,15 @@ window.__ModuleLoader__.load({
       let btn = document.getElementById('dsh-ac-find');
       if (CFG.search !== true) {
         if (btn !== null) btn.remove();
+        // 关掉搜索就把定位变量一起收掉，别在根元素上留 5 个废值
+        try {
+          const root = document.documentElement.style;
+          root.removeProperty('--ac-find-right');
+          root.removeProperty('--ac-find-bottom');
+          root.removeProperty('--ac-find-size');
+          root.removeProperty('--ac-q-right');
+          root.removeProperty('--ac-q-bottom');
+        } catch (err) { /* 拿不到根样式就跳过 */ }
         return null;
       }
       if (btn === null) {
@@ -1723,6 +1739,7 @@ window.__ModuleLoader__.load({
         window.setTimeout(schedule, Math.min(400, scrollQuietUntil - Date.now() + 40));
       }
       ensureStyle();
+      DBG.counters.pass = (DBG.counters.pass || 0) + 1;
       // 本趟的命中表（整体重建，见下面的 matches 赋值）
       const hitNow = [];
       const flow = findFlow();
@@ -1794,6 +1811,8 @@ window.__ModuleLoader__.load({
       stats.rows += list.length;
       const rendered = [];
       for (let i = 0; i < list.length; i += 1) {
+        try {
+        // 下面整段按行兜异常；缩进保持原样，免得制造 60 行伪改动。
         const group = list[i];
         const expanded = group.id === expandedId || isPinned(group.id);
         const parts = pick(group);
@@ -1855,6 +1874,11 @@ window.__ModuleLoader__.load({
           } else {
             setAttr(el, HIDE_ATTR, '1');
           }
+        }
+        } catch (err) {
+          // 一行认不出（结构怪 / 节点被应用拆了）不该让整趟半途中断：记一条、跳过这一行。
+          console.warn('[auto-collapse] row skipped', err);
+          continue;
         }
       }
       // 每趟整体重建命中表。以前只做交集，已经不再匹配的 id 会永远留在表里：
@@ -2025,6 +2049,24 @@ window.__ModuleLoader__.load({
       previewFor = null;
     };
 
+    let lastIdleSig = '';
+
+    /** 1500ms 的兜底 pass：结构、展开目标、查询、钉住、会话 key 全没变就不跑整表。 */
+    function idleTick() {
+      if (!started || disposed) return;
+      const flow = findFlow();
+      if (flow === null) return;
+      const rows = flow.querySelectorAll('[data-chat-turn]');
+      const lastEl = rows.length > 0 ? rows[rows.length - 1] : null;
+      const sig = rows.length + '|' + (lastEl === null ? '' : lastEl.getAttribute('data-chat-turn')) +
+        '|' + expandedId + '|' + query + '|' + pinned.size + '|' + sessionKey(flow) +
+        '|' + (searchOpen ? '1' : '0') + '|' + (CFG.search === true ? '1' : '0') +
+        '|' + (CFG.pin === true ? '1' : '0');
+      if (sig === lastIdleSig) return;
+      lastIdleSig = sig;
+      schedule();
+    }
+
     function schedule() {
       if (!started || disposed) return;
       if (pending) return;
@@ -2056,7 +2098,9 @@ window.__ModuleLoader__.load({
       return {
         flow: true,
         expandedId,
+        passes: DBG.counters.pass || 0,
         turns: groups(flow).map(function (group) {
+          try {
           const parts = pick(group);
           const bubble = parts.user === null ? null : parts.user.querySelector('[class*="_bubble"]');
           return {
@@ -2066,6 +2110,10 @@ window.__ModuleLoader__.load({
             summary: parts.user === null ? '' : summaryOf(bubble, parts.user).slice(0, 60),
             items: group.items.length,
           };
+          } catch (err) {
+            // 结构怪的行不该让诊断接口整只抛掉（真机上有扩展插件改过结构就会这样）
+            return { id: group.id, error: String((err && err.message) || err) };
+          }
         }),
       };
     }
@@ -2141,6 +2189,14 @@ window.__ModuleLoader__.load({
       // 采样器停了要把“滚动监听已装”的标记一起清掉，否则再 __acStart 时它不会重新启动
       // （监听函数是同一个引用，重装不会重复）。
       scrollWatched = null;
+      if (pinFixRaf !== 0) {
+        window.cancelAnimationFrame(pinFixRaf);
+        pinFixRaf = 0;
+      }
+      if (pinFixTimer !== 0) {
+        window.clearTimeout(pinFixTimer);
+        pinFixTimer = 0;
+      }
       if (observer !== null) {
         try {
           observer.disconnect();
@@ -2227,6 +2283,10 @@ window.__ModuleLoader__.load({
       pinLayerHost = null;
       pinHostNode = null;
       pinBtns.clear();
+      lastPinFlow = null;
+      lastPinRows = null;
+      lastPinSig = '';
+      lastIdleSig = '';
       clearRowCaches();
     }
 
@@ -2275,7 +2335,7 @@ window.__ModuleLoader__.load({
       window.addEventListener('resize', onResize);
       window.setTimeout(placeFind, 900);
       window.setTimeout(placeFind, 2600);
-      timer = setInterval(schedule, 1500);
+      timer = setInterval(idleTick, 1500);
       // 立刻折一次：__acStart / 重新注入之后不该等 300–1500ms 才看到折叠。
       schedule();
       window.__acForget = forgetAll;

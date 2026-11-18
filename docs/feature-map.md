@@ -80,6 +80,7 @@
 | `accordion-p0` | `verify/scenarios/p0.json` | 0 | config-api, lifecycle-stop-start, multi-flow-select, only-newest-fresh | - |
 | `perf-scroll-stream` | `verify/scenarios/perf-scroll-stream.json` | 4 | line-contract, only-newest-expanded, no-scroll-writes, no-harness-errors | {"maxWorstFrameMs": 60, "maxLongTaskWorstMs": 120} |
 | `accordion-phase2` | `verify/scenarios/phase2.json` | 1 | search-stale, stop-restores | - |
+| `accordion-phase3` | `verify/scenarios/phase3.json` | 1 | idle-skip, poison-row, stop-clears-chrome | - |
 | `accordion-regression` | `verify/scenarios/regression.json` | 0 | same-length-summary, expand-survives-rerender, session-switch-colliding-ids, stamp-from-native-clock, keyboard-toggle, fmt-old-ms | - |
 | `scroll-jank` | `verify/scenarios/scroll-jank.json` | 3 | no-scroll-writes, only-newest-expanded, line-contract, pin-scroll-geometry, scroll-stability, scroll-up-keeps-expansion, identity-stable | {"maxWorstFrameMs": 250, "maxLongTaskWorstMs": 250} |
 | `accordion-session-switch` | `verify/scenarios/session-switch.json` | 1 | switch-from-1-turn, only-newest-expanded | - |

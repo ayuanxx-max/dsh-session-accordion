@@ -1,0 +1,19 @@
+{
+  "name": "accordion-session-switch",
+  "steps": [
+    {
+      "js": "window.__h.seed(3)",
+      "waitMs": 350
+    }
+  ],
+  "checks": [
+    {
+      "name": "switch-from-1-turn",
+      "js": "window.__check.switchFromOneTurn()"
+    },
+    {
+      "name": "only-newest-expanded",
+      "js": "window.__check.onlyNewestExpanded()"
+    }
+  ]
+}

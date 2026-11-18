@@ -484,6 +484,57 @@ var checks = {
     return { ok: got === want, detail: { got: got, want: want } };
   },
 
+  switchFromOneTurn: function () {
+    /* 真机换会话：从 1 轮的会话切到多轮会话，插件不重置身份（绝不调 __acForget）。
+       旧实现会把这 1 轮会话的展开目标留在 expandedId 里 —— 新会话整屏全折叠，
+       还会把外来 id 写进新会话的记忆槽（原记忆被覆盖）。 */
+    var title0 = document.title;
+    helpers.replaceSession(['b1'], 'B ');
+    return wait(240).then(function () {
+      var openB = groups().filter(function (g) {
+        var p = procOf(g); return p && !isHidden(p);
+      }).map(function (g) { return g.id; });
+      document.title = title0 + ' · A';
+      flow.innerHTML = '';
+      seq = 0;
+      helpers.addTurn('a1', 'A 1');
+      helpers.addTurn('a2', 'A 2');
+      helpers.addTurn('a3', 'A 3');
+      // 真机上流式/定时器会不断产生新的 pass；测试里显式跑一次，把 120ms 换会话窗口走完。
+      return wait(300).then(function () {
+        if (window.__acDebug && typeof window.__acDebug.apply === 'function') window.__acDebug.apply(true);
+        return wait(140);
+      }).then(function () {
+        var gs = groups();
+        var open = gs.filter(function (g) {
+          var p = procOf(g); return p && !isHidden(p);
+        }).map(function (g) { return g.id; });
+        var memWithB1 = 0;
+        try {
+          for (var k = 0; k < localStorage.length; k++) {
+            var key = localStorage.key(k);
+            if (key && key.indexOf('dsh-ac-mem:') === 0) {
+              var v = localStorage.getItem(key) || '';
+              if (v.indexOf('"expanded":"b1"') >= 0) memWithB1 += 1;
+            }
+          }
+        } catch (err) { /* 私密模式：没有 localStorage 就跳过这条判据 */ }
+        var r = (window.__acReport && window.__acReport()) || {};
+        document.title = title0;
+        var ok = openB.length === 1 && openB[0] === 'b1' &&
+          open.length === 1 && open[0] === 'a3' &&
+          String(r.expandedId) === 'a3' &&
+          memWithB1 <= 1;
+        return {
+          ok: ok,
+          detail: {
+            openB: openB, openA: open, expandedId: String(r.expandedId),
+            memEntriesWithB1: memWithB1, turns: gs.length
+          }
+        };
+      });
+    });
+  },
   configApi: function () {
     var off = window.__acConfig({ guard: false });
     var on = window.__acConfig({ guard: true });

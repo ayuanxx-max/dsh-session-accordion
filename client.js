@@ -849,6 +849,9 @@ window.__ModuleLoader__.load({
 
     function saveMem() {
       if (CFG.memory !== true || !memKey) return;
+      // 展开目标不在当前列表里就不要落盘：换会话的头一两帧会带着上一会话的 id，
+      // 写下去等于把新会话的记忆覆盖成一条不存在的轮次。
+      if (expandedId !== null && seenIds.length > 0 && seenIds.indexOf(expandedId) === -1) return;
       const snapshot = JSON.stringify({ expanded: expandedId, pinned: Array.from(pinned) });
       if (snapshot === savedState) return;
       savedState = snapshot;
@@ -1416,6 +1419,7 @@ window.__ModuleLoader__.load({
     }
 
     let samplerOn = false;
+    let samplerRaf = 0;
     let chatScroller = null;
     let lastLayoutSig = '';
     let switchedNow = false;
@@ -1431,6 +1435,7 @@ window.__ModuleLoader__.load({
       samplerOn = true;
       let frame = 0;
       const tick = function () {
+        if (!started) { samplerOn = false; return; }
         frame += 1;
         if (frame % 3 === 0 && document.visibilityState === 'visible') {
           const host = scrollWatchedHost;
@@ -1453,9 +1458,9 @@ window.__ModuleLoader__.load({
             }
           }
         }
-        window.requestAnimationFrame(tick);
+        samplerRaf = window.requestAnimationFrame(tick);
       };
-      window.requestAnimationFrame(tick);
+      samplerRaf = window.requestAnimationFrame(tick);
     }
 
     function watchScroll(host) {
@@ -1528,7 +1533,9 @@ window.__ModuleLoader__.load({
       }
       // 换会话 = 两次列表“完全不交集”（不是 key 变、也不是闪空），且这个状态持续一小段时间。
       // 首屏、加载更早、React 整批重建都会短暂不交集，靠时间窗把它们滤掉。
-      const disjoint = !overlap && prev.length >= 2 && ids.length >= 2;
+      // 只要两边非空就算“完全不交集”：1 轮会话 ↔ 多轮会话正是最容易漏判的一种，
+      // 漏判会让展开目标停在上一会话的 turn id 上（新会话整屏全折叠，还会污染记忆槽）。
+      const disjoint = !overlap && prev.length >= 1 && ids.length >= 1;
       if (disjoint) {
         if (disjointSince === 0) disjointSince = Date.now();
       } else {
@@ -1710,7 +1717,9 @@ window.__ModuleLoader__.load({
         expandedId = beforeExpanded;
         DBG.counters.keepDuringScroll += 1;
       }
-      const hWhole0 = flow.scrollHeight;
+      // 下面的高度/日期头读取都会强制布局，只在调试计时打开时才付出这个代价。
+      const dbgOn = DBG.on === true;
+      const hWhole0 = dbgOn ? flow.scrollHeight : 0;
       const scroller = chatScrollerFor(flow) || scrollWatchedHost;
       stats.passes += 1;
       stats.rows += list.length;
@@ -1793,8 +1802,8 @@ window.__ModuleLoader__.load({
       if (countEl !== null) {
         countEl.textContent = query === '' ? '' : (matches.length === 0 ? t('noMatch') : (Math.min(matchIdx, matches.length - 1) + 1) + '/' + matches.length);
       }
-      const daysBefore = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
-      const hBefore = flow.scrollHeight;
+      const daysBefore = dbgOn ? flow.querySelectorAll('[' + DAY_ATTR + ']').length : 0;
+      const hBefore = dbgOn ? flow.scrollHeight : 0;
       const pinnedIds = [];
       pinned.forEach(function (id) { pinnedIds.push(id); });
       pinnedIds.sort();
@@ -1802,13 +1811,13 @@ window.__ModuleLoader__.load({
       const layoutSame = layoutSig === lastLayoutSig;
       lastLayoutSig = layoutSig;
       if (!layoutSame && !quietNow) applyDays(flow, rendered);
-      const daysAfter = flow.querySelectorAll('[' + DAY_ATTR + ']').length;
-      const hAfter = flow.scrollHeight;
-      if (daysAfter > daysBefore) DBG.counters.daysAdd += daysAfter - daysBefore;
-      if (daysAfter < daysBefore) DBG.counters.daysDel += daysBefore - daysAfter;
-      if (hAfter !== hBefore) { DBG.counters.hChange += 1; dbg('H ' + hBefore + '->' + hAfter + ' exp=' + expandedId); }
-      if (DBG.lastH !== 0 && hAfter !== DBG.lastH) { dbg('Hcum ' + DBG.lastH + '->' + hAfter); }
-      DBG.lastH = hAfter;
+      const daysAfter = dbgOn ? flow.querySelectorAll('[' + DAY_ATTR + ']').length : 0;
+      const hAfter = dbgOn ? flow.scrollHeight : 0;
+      if (dbgOn && daysAfter > daysBefore) DBG.counters.daysAdd += daysAfter - daysBefore;
+      if (dbgOn && daysAfter < daysBefore) DBG.counters.daysDel += daysBefore - daysAfter;
+      if (dbgOn && hAfter !== hBefore) { DBG.counters.hChange += 1; dbg('H ' + hBefore + '->' + hAfter + ' exp=' + expandedId); }
+      if (dbgOn && DBG.lastH !== 0 && hAfter !== DBG.lastH) { dbg('Hcum ' + DBG.lastH + '->' + hAfter); }
+      if (dbgOn) DBG.lastH = hAfter;
       // 分叉徽标单独签名：它只在“有没有分叉/层级/标题”变化时才该动，
       // 但也不能被 layoutSame 一起跳过（否则会话切走之后徽标会赖着不走）。
       const forkInfoNow = forkInfo();
@@ -1828,7 +1837,7 @@ window.__ModuleLoader__.load({
       // “页面不动但右侧滚动条在抖”的来源：插件每 pass 写一次 scrollTop，应用的滚动
       // 监听再回写一次，两边对着写 → 滚动条来回抽。现在插件对滚动位置**只读**，
       // 高度变化引起的视口位移交给浏览器原生滚动锚定（overflow-anchor:auto）。
-      if (flow.scrollHeight !== hWhole0) {
+      if (dbgOn && flow.scrollHeight !== hWhole0) {
         DBG.counters.hWhole += 1;
         dbg('HW ' + hWhole0 + '->' + flow.scrollHeight);
       }
@@ -2028,6 +2037,14 @@ window.__ModuleLoader__.load({
       if (timer) {
         clearInterval(timer);
         timer = 0;
+      samplerOn = false;
+      if (samplerRaf) {
+        window.cancelAnimationFrame(samplerRaf);
+        samplerRaf = 0;
+      }
+      // 采样器停了要把“滚动监听已装”的标记一起清掉，否则再 __acStart 时它不会重新启动
+      // （监听函数是同一个引用，重装不会重复）。
+      scrollWatched = null;
       }
       if (observer !== null) {
         try {
@@ -2064,10 +2081,10 @@ window.__ModuleLoader__.load({
           if (applyDepth > 0) { schedule(); return; }
           const now = Date.now();
           if (now - lastSyncApply < 12) { schedule(); return; }
-          // 滚动中只有“新增了轮次行”才值得立刻同步折叠（那是唯一会让行先高后低的情况）；
-          // 流式输出改的是文本节点，视觉上高度不变，交给 rAF 节流即可。
-          // 否则每来一次 delta 就在主线程跑一遍全表 apply，用户边滚边卡。
-          if (Date.now() < scrollQuietUntil && !addsTurnRows(records)) { schedule(); return; }
+          // 只有“新挂载了轮次行”才值得同步折叠（那是唯一会让行先高后低的情况）；
+          // 流式输出改的是文本节点，视觉上高度不变，一律交给 rAF 节流。
+          // 否则每来一次 delta 就在主线程跑一遍全表 apply（150 轮时约 80 次/秒），边滚边卡。
+          if (!addsTurnRows(records)) { schedule(); return; }
           lastSyncApply = now;
           try {
             apply();

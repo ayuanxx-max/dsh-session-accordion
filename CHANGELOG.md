@@ -18,10 +18,13 @@
 | --- | --- | --- |
 | A 时间线（日期吸头 + hover 预览） | `day-groups` / `hover-preview` | 日期头正常分段（10-29/10-30/11-03/今天） |
 | B 记忆 + 钉住 | `pin-toggle-keeps-open` / `memory-restore` / `pin-geometry*` / `pin-containment` / `pin-scroll-geometry` | 钉住/解除、📌 位置（隔一字符、行内居中）已在前几轮实测 |
-| C 搜索 | `search-filter` | 搜索条能弹出、焦点抓取已修；🔍 入口按钮的真机点击**尚未验成** |
+| C 搜索 | `search-filter` | ✅ 真机全链路：点 🔍 → 输入框弹出 → 打 `npm` 命中 `1/2` → `Enter` 跳转并展开命中轮 |
 | E 分叉徽标 | `fork-chip` | 顶部 `↳ 分叉 · L1 · …` 正常显示 |
 | F 稳定性（增量渲染） | `incremental-skip` / `scroll-stability` / `no-scroll-writes` | 46 断言全绿 |
 | G 主题/无障碍/双语 | `a11y-i18n-theme` / `keyboard-j-esc` | 真机 `Esc` 全收（最新一条变折叠行）已验证 |
+
+真机验证方式（不碰用户的鼠标/键盘）：用 `PostMessage` 向窗口投 `WM_*` 消息点按钮、打字、回车，
+再截屏比对。这样自动化不会再抢走指针，也不会污染用户的输入框。
 
 回滚：`git revert <本修订提交>`。版本仍本地 `3.0.0`，未发布。
 

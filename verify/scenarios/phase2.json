@@ -1,0 +1,19 @@
+{
+  "name": "accordion-phase2",
+  "steps": [
+    {
+      "js": "window.__h.seed(4)",
+      "waitMs": 350
+    }
+  ],
+  "checks": [
+    {
+      "name": "search-stale",
+      "js": "window.__check.searchStale()"
+    },
+    {
+      "name": "stop-restores",
+      "js": "window.__check.stopRestores()"
+    }
+  ]
+}

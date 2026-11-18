@@ -1,5 +1,20 @@
 # Changelog · 更新记录
 
+## 修复：阶段 2（2026-11-18）
+
+- 搜索：命中表每趟整体重建（以前只做交集，零命中仍显示 1/N，回车会跳到不含关键词的轮次）。
+- 搜索：打开时记下展开目标与滚动位置，关闭时还原（跳过去的那一轮不再留在展开态）。
+- 生命周期：`__acStop()` 真的把页面还原（样式表、行属性、📌 层、搜索框、主题、行内变量、全部监听），
+  `__acStart()` 立即重折；行级弱引用缓存在停止时清空，避免“属性撤了、缓存说写过”而不重画。
+- 生命周期：`apply`/`schedule` 在停止后直接返回，`disposed` 不再是死变量。
+- 健壮性：事件回调里的 `apply` 全部走 `safeApply`（异常只 warn，不留半折状态）。
+- 键盘：输入区判定认 `isContentEditable`、`role=textbox` 与 shadow DOM；Esc 在弹窗打开或已被
+  应用处理时不再抢默认行为。
+- 性能：`syncPins` 加脏检查（尺寸/展开目标/钉住数不变不重量），语言与配置变更时失效缓存。
+- 性能：`noteScroll` 不再把 keydown 当滚动信号，`adoptScroller` 限频 400ms。
+- 启动：`document.body` 未就绪时等 `DOMContentLoaded`；新增单例守卫，重复求值只跑一个实例。
+- 验证：新增 `verify/scenarios/phase2.json`（`search-stale`、`stop-restores`），14 个场景全绿。
+
 ## 修复：P0 四项（2026-11-18）
 
 - 换会话：`expandedId` 在会话切换时会校验，1 轮会话切到多轮会话不再整屏全折叠；

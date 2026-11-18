@@ -535,6 +535,75 @@ var checks = {
       });
     });
   },
+  searchStale: function () {
+    /* 搜索状态：先命中一批，再改成零命中。旧实现只做交集，旧的命中 id 永远留在表里，
+       于是“零命中”仍显示 1/N，回车还会跳到一条根本不含关键词的轮次。 */
+    window.__acSearch(true);
+    var prev = (window.__acReport() || {}).expandedId;
+    var q = document.querySelector('#dsh-ac-search .dsh-ac-q');
+    var set = function (v) {
+      q.value = v;
+      q.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('问题');
+    return wait(220).then(function () {
+      set('zzzz-命中不了');
+      return wait(240);
+    }).then(function () {
+      var rows = document.querySelectorAll('[data-chat-turn]');
+      var stale = 0;
+      for (var i = 0; i < rows.length; i += 1) {
+        if (rows[i].getAttribute('data-ac-filtered') === '0') stale += 1;
+      }
+      var count = (document.querySelector('#dsh-ac-search .dsh-ac-count') || {}).textContent || '';
+      var filtered = (window.__acSearch(true) || {});
+      window.__acSearch(false);
+      return wait(240).then(function () {
+        var after = (window.__acReport() || {}).expandedId;
+        var unfiltered = document.querySelectorAll('[data-chat-turn][data-ac-filtered]').length;
+        return {
+          ok: stale === 0 && unfiltered === 0 && String(after) === String(prev),
+          detail: {
+            staleRows: stale, countText: count, query: filtered.query,
+            prevExpanded: String(prev), afterExpanded: String(after), stillFiltered: unfiltered
+          }
+        };
+      });
+    });
+  },
+  stopRestores: function () {
+    /* __acStop 之后 DOM 必须回到“没装过插件”的样子：样式表、行上的折叠属性、📌 层、
+       搜索框都要撤掉；再 __acStart 要能回来继续折。 */
+    helpers.seed(3);
+    return wait(280).then(function () {
+      window.__acStop();
+      return wait(180);
+    }).then(function () {
+      var rows = document.querySelectorAll('[data-chat-turn]');
+      var hidden = 0, attrs = 0;
+      for (var i = 0; i < rows.length; i += 1) {
+        if (rows[i].getAttribute('data-ac-hidden') === '1') hidden += 1;
+        if (rows[i].hasAttribute('data-ac-line') || rows[i].hasAttribute('data-ac-user') ||
+            rows[i].hasAttribute('data-ac-time')) attrs += 1;
+      }
+      var style = document.getElementById('dsh-auto-collapse-style');
+      var pins = document.querySelectorAll('.dsh-ac-pin, .dsh-ac-pinlayer').length;
+      var search = document.getElementById('dsh-ac-search');
+      var find = document.getElementById('dsh-ac-find');
+      var detail = {
+        hiddenRows: hidden, lineRows: attrs, style: style !== null,
+        pins: pins, search: search !== null, find: find !== null
+      };
+      var ok = hidden === 0 && attrs === 0 && style === null && pins === 0 && search === null && find === null;
+      window.__acStart();
+      return wait(320).then(function () {
+        var gs = groups();
+        var lastOpen = gs.length > 0 && !isHidden(procOf(gs[gs.length - 1]));
+        detail.restartedOpen = lastOpen;
+        return { ok: ok && lastOpen, detail: detail };
+      });
+    });
+  },
   configApi: function () {
     var off = window.__acConfig({ guard: false });
     var on = window.__acConfig({ guard: true });

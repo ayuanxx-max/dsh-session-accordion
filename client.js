@@ -17,6 +17,13 @@
 window.__ModuleLoader__.load({
   id: 'dsh-session-accordion',
   factory() {
+    /* 单例守卫：DSH 若把同一个 bundle 求值两次（profile 与 link 副本同存、HMR 重载），
+       两个闭包各持一个 expandedId，会互相把对方的折叠写回去（画面来回跳），
+       而 __acStop 只能停掉后一个。第二个实例直接不启动。 */
+    if (window.__acOwner === true) {
+      return { inject: [], apply: function () {} };
+    }
+    window.__acOwner = true;
     const STYLE_ID = 'dsh-auto-collapse-style';
     const FLOW_SEL = '[data-slot="conversation.chat.flow"]';
     const ITEM_SEL = '[data-chat-turn]';
@@ -111,12 +118,12 @@ window.__ModuleLoader__.load({
     /** 上一趟看到的会话 key（侧栏稳定 id / 标题指纹），用来给“真换会话”再加一道锁。 */
     let lastTrackKey = '';
 
-    const textCache = new WeakMap();
+    let textCache = new WeakMap();
     /** 行级渲染状态：签名不变就整行跳过（F：增量渲染）。 */
-    const rowState = new WeakMap();
-    const lastRest = new WeakMap();
+    let rowState = new WeakMap();
+    let lastRest = new WeakMap();
     /** 时间戳按「元素 + 原生时钟文本」缓存，避免每帧沿 fiber 回溯。 */
-    const stampCache = new WeakMap();
+    let stampCache = new WeakMap();
     const stats = { passes: 0, rows: 0, skipped: 0, writes: 0 };
     let pending = false;
     let started = false;
@@ -611,6 +618,7 @@ window.__ModuleLoader__.load({
     let searchOpen = false;
     let matches = [];
     let matchIdx = 0;
+    let searchReturn = null;
 
     function ensureSearch() {
       let box = document.getElementById('dsh-ac-search');
@@ -715,6 +723,14 @@ window.__ModuleLoader__.load({
     function openSearch() {
       if (CFG.search !== true) return;
       const box = ensureSearch();
+      // 记下打开搜索前的展开目标与滚动位置：关掉搜索要回到原样，
+      // 否则“搜索时跳过去的那一轮”会留在展开态并被写进会话记忆。
+      if (searchReturn === null) {
+        searchReturn = {
+          expandedId: expandedId,
+          top: scrollWatchedHost !== null && scrollWatchedHost.isConnected ? scrollWatchedHost.scrollTop : null
+        };
+      }
       box.style.display = 'flex';
       searchOpen = true;
       ensureFindButton();
@@ -747,7 +763,19 @@ window.__ModuleLoader__.load({
         box.querySelector('.dsh-ac-q').value = '';
         box.querySelector('.dsh-ac-count').textContent = '';
       }
-      schedule();
+      const back = searchReturn;
+      searchReturn = null;
+      if (back !== null) {
+        expandedId = back.expandedId;
+        // 这里写一次 scrollTop 是“把用户自己的位置放回去”，只发生一次；
+        // 每趟 pass 的都回写才是当初画面抖动的根因。
+        if (back.top !== null && scrollWatchedHost !== null && scrollWatchedHost.isConnected) {
+          try {
+            scrollWatchedHost.scrollTop = back.top;
+          } catch (err) { /* 容器换过就只还原展开 */ }
+        }
+      }
+      safeApply(true);
     }
 
     function focusMatch() {
@@ -755,7 +783,7 @@ window.__ModuleLoader__.load({
       const id = matches[matchIdx % matches.length];
       matchIdx = (matchIdx + 1) % matches.length;
       expandedId = id;
-      apply(true);
+      safeApply(true);
       const row = document.querySelector('[data-chat-turn="' + id + '"]');
       if (row !== null && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' });
     }
@@ -872,7 +900,7 @@ window.__ModuleLoader__.load({
         else rendered[i].removeAttribute(PIN_ATTR);
       }
       saveMem();
-      apply(true);
+      safeApply(true);
     }
 
     let pinLayerEl = null;
@@ -1047,7 +1075,14 @@ window.__ModuleLoader__.load({
       }, 120);
     }
 
-    function syncPins(flow, rendered) {
+    function syncPins(flow, rendered, force) {
+      // 一帧可能调 2–3 次（apply、rAF、120ms 定时器）：输入没变就别再全量量一遍，
+      // 每次都是“全行 getBoundingClientRect + getComputedStyle(::after)”，是最贵的一档。
+      const first = rendered.length > 0 && rendered[0].user !== null
+        ? rendered[0].user.getAttribute('data-chat-turn') : '';
+      const sig = rendered.length + '|' + first + '|' + expandedId + '|' + pinned.size + '|' + (pinLayerHost === null ? 'n' : 'h');
+      if (force !== true && sig === lastPinSig) return;
+      lastPinSig = sig;
       if (pinHostNode === null || !pinHostNode.isConnected) {
         pinHostNode = scrollHostOf(flow) || document.body;
         pinHostSerial += 1;
@@ -1365,9 +1400,17 @@ window.__ModuleLoader__.load({
       }
     }
 
+    let lastAdoptAt = 0;
+
     function noteScroll(event) {
       DBG.counters.wheel += 1;
-      if (event !== undefined && event !== null && event.target !== null) adoptScroller(event.target);
+      // adoptScroller 会向上最多 14 层读 scrollHeight：每个滚动事件都做就是纯布局开销，
+      // 400ms 认一次容器足够（认的是“谁在滚”，不是当前位置）。
+      const adoptNow = Date.now();
+      if (event !== undefined && event !== null && event.target !== null && adoptNow - lastAdoptAt > 400) {
+        lastAdoptAt = adoptNow;
+        adoptScroller(event.target);
+      }
       const host = scrollWatchedHost;
       if (host !== null && host.isConnected) {
         const st = host.scrollTop;
@@ -1389,10 +1432,23 @@ window.__ModuleLoader__.load({
     /** 系统/应用语言变了：预览与按钮提示文字要跟着换（“随系统设置”）。 */
     function watchLang() {
       try {
-        window.addEventListener('languagechange', function () { apply(true); }, { passive: true });
+        window.addEventListener('languagechange', onLangChange, { passive: true });
       } catch (err) {
         /* 老内核没有这个事件 */
       }
+    }
+
+    function onLangChange() {
+      // 按钮文案/提示不在 syncPins 的脏检查签名里，语言换了必须让它重量一次
+      lastPinSig = '';
+      safeApply(true);
+    }
+
+    /** 窗口尺寸/缩放变了：几何缓存全失效，重新量一次。 */
+    function onResize() {
+      lastPinSig = '';
+      placeFind();
+      schedule();
     }
 
     const scrollBound = new WeakSet();
@@ -1471,7 +1527,7 @@ window.__ModuleLoader__.load({
         document.addEventListener('scroll', noteScroll, { passive: true, capture: true });
         window.addEventListener('wheel', noteScroll, { passive: true, capture: true });
         window.addEventListener('touchmove', noteScroll, { passive: true, capture: true });
-        document.addEventListener('keydown', noteScroll, { passive: true, capture: true });
+        // keydown 不当作滚动信号：每敲一个字都进静默期会让日期头补不上，也会推迟 apply。
       }
       if (host !== null && host !== document.body) bindScrollers(host);
     }
@@ -1593,11 +1649,22 @@ window.__ModuleLoader__.load({
     }
 
     function apply(force) {
+      if (!started || disposed) return 0;
       applyDepth += 1;
       try {
         return applyInner(force);
       } finally {
         applyDepth -= 1;
+      }
+    }
+
+    /** 事件回调里调 apply：任何一步抛错都不许变成未捕获异常（否则 DOM 只折了一半）。 */
+    function safeApply(force) {
+      try {
+        return apply(force);
+      } catch (err) {
+        console.warn('[auto-collapse] apply failed', err);
+        return 0;
       }
     }
 
@@ -1656,6 +1723,8 @@ window.__ModuleLoader__.load({
         window.setTimeout(schedule, Math.min(400, scrollQuietUntil - Date.now() + 40));
       }
       ensureStyle();
+      // 本趟的命中表（整体重建，见下面的 matches 赋值）
+      const hitNow = [];
       const flow = findFlow();
       if (flow === null || !flow.isConnected) {
         DBG.counters.rFlow += 1;
@@ -1739,7 +1808,7 @@ window.__ModuleLoader__.load({
           setAttr(user, FILTER_ATTR, matched ? '0' : '1');
           if (matched) {
             setAttr(user, HIT_ATTR, '1');
-            if (matches.indexOf(group.id) < 0) matches.push(group.id);
+            if (hitNow.indexOf(group.id) < 0) hitNow.push(group.id);
           } else {
             user.removeAttribute(HIT_ATTR);
           }
@@ -1788,16 +1857,10 @@ window.__ModuleLoader__.load({
           }
         }
       }
-      if (query !== '') {
-        const keep = [];
-        for (let i = 0; i < rendered.length; i += 1) {
-          const id = rendered[i].user.getAttribute('data-chat-turn');
-          if (matches.indexOf(id) >= 0) keep.push(id);
-        }
-        matches = keep;
-      } else {
-        matches = [];
-      }
+      // 每趟整体重建命中表。以前只做交集，已经不再匹配的 id 会永远留在表里：
+      // 结果“零命中”还显示 1/N，回车也会跳到一条根本不含关键词的轮次。
+      matches = query === '' ? [] : hitNow;
+      if (matchIdx >= matches.length) matchIdx = 0;
       const countEl = document.querySelector('#dsh-ac-search .dsh-ac-count');
       if (countEl !== null) {
         countEl.textContent = query === '' ? '' : (matches.length === 0 ? t('noMatch') : (Math.min(matchIdx, matches.length - 1) + 1) + '/' + matches.length);
@@ -1906,17 +1969,43 @@ window.__ModuleLoader__.load({
         return;
       }
       const el = event.target instanceof Element ? event.target : null;
-      const typing = el !== null && (el.closest('input,textarea,select,[contenteditable="true"]') !== null);
+      // 输入区判定要宽容：裸 contenteditable、plaintext-only、role=textbox、shadow DOM 里的输入框
+      // 都算“正在打字”，否则 j/k 会被 preventDefault 掉（字符根本进不去输入框）。
+      let typing = false;
+      if (el !== null) {
+        if (el.isContentEditable === true) typing = true;
+        else if (el.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]') !== null) typing = true;
+        else if (typeof event.composedPath === 'function') {
+          const path = event.composedPath();
+          for (let i = 0; i < path.length; i += 1) {
+            const node = path[i];
+            if (node instanceof Element && (node.isContentEditable === true || node.getAttribute('role') === 'textbox')) {
+              typing = true;
+              break;
+            }
+          }
+        }
+      }
       if (!typing && (key === 'j' || key === 'k')) {
         event.preventDefault();
         navigate(key === 'j' ? 1 : -1);
         return;
       }
-      if (!typing && key === 'Escape') {
+      // Esc 只在没有弹窗/菜单占着的时候才用来收起全部轮次：
+      // 无条件 preventDefault 会把应用的 Esc 默认行为顶掉（关对话框、退菜单）。
+      let overlayOpen = false;
+      if (key === 'Escape') {
+        try {
+          overlayOpen = document.querySelector('dialog[open],[role="dialog"][aria-modal="true"]') !== null;
+        } catch (err) {
+          overlayOpen = false;
+        }
+      }
+      if (!typing && key === 'Escape' && !event.defaultPrevented && !overlayOpen) {
         event.preventDefault();
         expandedId = null;
         userFolded = true;      // 用户主动全收：下一次 apply 不许又把最新一条弹开
-        apply(true);
+        safeApply(true);
         announce(t('collapse'));
         return;
       }
@@ -1937,6 +2026,7 @@ window.__ModuleLoader__.load({
     };
 
     function schedule() {
+      if (!started || disposed) return;
       if (pending) return;
       pending = true;
       requestAnimationFrame(function () {
@@ -2021,6 +2111,7 @@ window.__ModuleLoader__.load({
     let disposed = false;
     let lastSyncApply = 0;
     let lastPinSync = 0;
+    let lastPinSig = '';
 
     // 📌 覆盖层的位置是内容坐标，滚动时本来就不该变；
     // 滚动中最多 90ms 量一次几何，滚停后的那次 apply 一定全量校正。
@@ -2037,15 +2128,19 @@ window.__ModuleLoader__.load({
       if (timer) {
         clearInterval(timer);
         timer = 0;
+      }
       samplerOn = false;
       if (samplerRaf) {
         window.cancelAnimationFrame(samplerRaf);
         samplerRaf = 0;
       }
+      if (previewTimer !== 0) {
+        window.clearTimeout(previewTimer);
+        previewTimer = 0;
+      }
       // 采样器停了要把“滚动监听已装”的标记一起清掉，否则再 __acStart 时它不会重新启动
       // （监听函数是同一个引用，重装不会重复）。
       scrollWatched = null;
-      }
       if (observer !== null) {
         try {
           observer.disconnect();
@@ -2058,11 +2153,91 @@ window.__ModuleLoader__.load({
       document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('mouseover', onOver, true);
       document.removeEventListener('mouseout', onOut, true);
+      document.removeEventListener('scroll', noteScroll, { passive: true, capture: true });
+      window.removeEventListener('wheel', noteScroll, { passive: true, capture: true });
+      window.removeEventListener('touchmove', noteScroll, { passive: true, capture: true });
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('languagechange', onLangChange);
       hidePreview();
+      restoreDom();
+      // 让出单例标记：__acStart 或重新加载可以再接管
+      window.__acOwner = false;
+    }
+
+    /** 每行一张弱引用缓存：停下再启动时必须丢掉，否则“属性已被撤掉、缓存却说写过”的行不会重画。 */
+    function clearRowCaches() {
+      textCache = new WeakMap();
+      rowState = new WeakMap();
+      lastRest = new WeakMap();
+      stampCache = new WeakMap();
+    }
+
+    /** 把插件写进页面的东西撤干净：__acStop 之后会话要回到“没装过插件”的样子。 */
+    function restoreDom() {
+      const kill = function (sel) {
+        try {
+          const nodes = document.querySelectorAll(sel);
+          for (let i = 0; i < nodes.length; i += 1) {
+            if (nodes[i].parentNode !== null) nodes[i].parentNode.removeChild(nodes[i]);
+          }
+        } catch (err) { /* 选择器不合法就跳过 */ }
+      };
+      kill('#' + STYLE_ID);
+      kill('#dsh-ac-search');
+      kill('#dsh-ac-find');
+      kill('#dsh-ac-live');
+      kill('#dsh-ac-preview');
+      kill('#dsh-ac-dbg');
+      kill('.dsh-ac-pinlayer');
+      kill('.dsh-ac-pin');
+      const ATTRS = [HIDE_ATTR, LINE_ATTR, USER_ATTR, TEXT_ATTR, TIME_ATTR, FRESH_ATTR,
+        PIN_ATTR, PINBOX_ATTR, DAY_ATTR, FILTER_ATTR, HIT_ATTR, 'data-ac-pos'];
+      const rows = document.querySelectorAll(ITEM_SEL);
+      for (let i = 0; i < rows.length; i += 1) {
+        const el = rows[i];
+        // role/tabindex/aria 只在确实是我们标过的那一行上撤（普通行可能本来就有角色）
+        const ours = el.getAttribute(USER_ATTR) === '1';
+        for (let j = 0; j < ATTRS.length; j += 1) el.removeAttribute(ATTRS[j]);
+        if (ours) {
+          el.removeAttribute('role');
+          el.removeAttribute('tabindex');
+          el.removeAttribute('aria-expanded');
+          el.removeAttribute('aria-label');
+        }
+        try {
+          el.style.removeProperty('--dsh-ac-pinpad');
+        } catch (err) { /* 没有行内样式 */ }
+      }
+      try {
+        document.documentElement.removeAttribute('data-ac-theme');
+        const root = document.documentElement.style;
+        for (let i = root.length - 1; i >= 0; i -= 1) {
+          const name = root.item(i);
+          if (name.indexOf('--ac-find') === 0 || name.indexOf('--ac-q') === 0) root.removeProperty(name);
+        }
+      } catch (err) { /* 拿不到根样式就跳过 */ }
+      // 滚动容器：只有我们自己标过 data-ac-pos 的才把 position 撤回去
+      if (pinLayerHost !== null) {
+        try {
+          if (pinLayerHost.getAttribute('data-ac-pos') === '1') pinLayerHost.style.removeProperty('position');
+          pinLayerHost.removeAttribute('data-ac-pos');
+        } catch (err) { /* 容器已卸载 */ }
+      }
+      pinLayerEl = null;
+      pinLayerHost = null;
+      pinHostNode = null;
+      pinBtns.clear();
+      clearRowCaches();
     }
 
     function start() {
       if (started) return;
+      // body 还没就绪就先等 DOMContentLoaded。以前先把 started 置真再注入：注入一旦抛错
+      // （body 为 null），诊断全局全部没装上，之后 __acStart 还会因为 started 直接早退。
+      if (document.body === null) {
+        document.addEventListener('DOMContentLoaded', function () { start(); }, { once: true });
+        return;
+      }
       started = true;
       disposed = false;
       ensureStyle();
@@ -2097,12 +2272,12 @@ window.__ModuleLoader__.load({
       } catch (err) {
         console.warn('[auto-collapse] observer unavailable', err);
       }
-      window.addEventListener('resize', schedule);
-      window.addEventListener('resize', placeFind);
+      window.addEventListener('resize', onResize);
       window.setTimeout(placeFind, 900);
       window.setTimeout(placeFind, 2600);
       timer = setInterval(schedule, 1500);
-      setTimeout(schedule, 300);
+      // 立刻折一次：__acStart / 重新注入之后不该等 300–1500ms 才看到折叠。
+      schedule();
       window.__acForget = forgetAll;
     window.__acReport = report;
       window.__acStop = stop;
@@ -2118,6 +2293,7 @@ window.__ModuleLoader__.load({
           }
           ensureStyle();
           applyTheme();
+          lastPinSig = '';
           try {
             apply(true);
           } catch (err) {

@@ -378,9 +378,22 @@ Pick the former if you want to skim every answer at once; pick this one if you w
 
 MIT, see [LICENSE](LICENSE).
 
-## 3.0 特性与开关（本地草稿）
+## 3.0 特性与开关
 
-时间线日期分组 / 钉住与记忆 / 提问搜索 / 分叉徽标 / 增量渲染 / 双语与无障碍，均为独立开关：
+时间线日期分组 / 钉住与记忆 / 提问搜索 / 分叉徽标 / 增量渲染 / 双语与无障碍，均为独立开关。
+
+### 界面约定
+
+| 位置 | 行为 |
+| --- | --- |
+| 折叠行 | 灰色底 + 次要色文字，一眼区别于展开行 |
+| 展开行 | 原样无底色；新轮次到达时上一轮自动折回 |
+| 钉住行 | 左侧 2px 强调色条（折叠时再叠淡蓝底），新轮次不会把它折回去 |
+| 右下 🔍 | 悬在**发送箭头正上方**（同 x、同尺寸）；点一下开/关搜索条 |
+| 搜索条 | 开在 🔍 **左侧**、同一水平带；输入即过滤折叠行，`Enter` 跳到下一个命中并展开，`Esc` 关闭并还原 |
+
+键盘：`Ctrl/Cmd+Shift+K` 打开搜索（**最佳努力**：DSH 自带查找面板会抢 `Ctrl+Shift+F`、
+`Ctrl+Alt+F`、有时也抢 `Ctrl+Shift+K`，所以入口以 🔍 按钮为准）；`j`/`k` 上下移动，`Esc` 全收。
 
 ```js
 // 运行时（立即生效，写入 localStorage）
@@ -395,7 +408,7 @@ __acConfig({ theme: 'light' });    // 强制浅色
 localStorage.removeItem('dsh-ac-config'); // 全部恢复默认
 ```
 
-自检（11 个场景，含 3.0 新增 a/b/c/e/f/g/p0）：
+自检（12 个场景 50 条断言，含 3.0 新增 a/b/c/e/f/g/p0 与 perf-scroll-stream）：
 
 ```powershell
 python "%USERPROFILE%\.dsh\tools\verify-page.py" --root . --page verify/harness.html --scenario verify/scenarios/b.json --out reports/b

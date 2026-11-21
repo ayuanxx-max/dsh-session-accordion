@@ -1,4 +1,4 @@
-# DSH 会话交互折叠功能 · DSH Session Turn Accordion
+# DSH 会话历史折叠功能 · DSH Session History Accordion
 
 [![awesome-dsh-plugin](https://img.shields.io/badge/awesome--dsh--plugin-已收录-brightgreen)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 [![dshbase](https://img.shields.io/badge/dshbase-已收录-blue)](https://dshbase.com/zh/plugins/dsh-session-accordion/)

@@ -2,7 +2,7 @@
   "name": "dsh-session-accordion",
   "version": "3.1.2",
   "private": false,
-  "description": "DSH Web chat turn accordion: every interaction folds into one line, only the newest turn opens, and session switches or new turns reset the open state.",
+  "description": "DSH Web session history accordion: every interaction folds into one line, only the newest turn opens, and session switches or new turns reset the open state.",
   "type": "module",
   "license": "MIT",
   "scripts": {

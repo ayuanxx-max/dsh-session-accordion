@@ -482,7 +482,7 @@ JUMP 3235 -> 466（−2769px，紧跟在 FLIP 后 35ms）
 真机（link 安装、重新加载界面）核对：折叠行 📌 紧贴省略号后 2 字符、行内垂直居中；滚动 12 格后再滚回，📌 始终跟住所在行。
 
 
-All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordion**.
+All notable changes to **DSH 会话历史折叠功能 / DSH Session History Accordion**.
 
 ## 3.0.0-live（本地真机验证，2026-11-17）
 
@@ -491,7 +491,7 @@ All notable changes to **DSH 会话交互折叠功能 / DSH Session Turn Accordi
 1. **📌 钉住按钮被 React 抹掉**：按钮原先 append 到 `[data-chat-turn]` 行内，聊天流每次重渲染都会删掉这个外来子节点，
    所以真机上根本看不到 📌。改为 `#dsh-ac-pinlayer` 固定层（`position:fixed` + `pointer-events:none`，按钮自身 `auto`），
    每轮 `apply()` 里按行 `getBoundingClientRect()` 重定位、按 turn id 重新挂载与回收。
-2. **分叉徽标取不到干净标题**：侧栏行文本含「进行中 / 8分钟」等噪声，徽标写成「↳ 分叉 · L1 · 进行中DSH会话交互折叠功能8分钟」。
+2. **分叉徽标取不到干净标题**：侧栏行文本含「进行中 / 8分钟」等噪声，徽标写成「↳ 分叉 · L1 · 进行中DSH会话历史折叠功能8分钟」。
    改为优先用 `document.title` 去掉产品后缀；侧栏没有 active 标记时用标题匹配兜底识别当前会话。
 3. **搜索框压在标题栏上**：`top:14px` 在无边框窗口里盖住窗口按钮区，改到 `top:44px`。
 
